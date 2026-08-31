@@ -1,7 +1,10 @@
 # PyInstaller 빌드 산출물
 build/
 dist/
+
+# 빌드 설정(Notepad.spec)은 실제 제외 목록을 담고 있어 함께 관리한다
 *.spec
+!Notepad.spec
 
 # Python
 __pycache__/
@@ -13,7 +16,14 @@ venv/
 # 테스트 산출물
 _preview*.png
 _live*.png
+_screen*.png
+_exe_shot*.png
+_drop_mid.png
+_garbage_rain.png
+_after.png
+_final.png
 _smoke_appdata/
+_dbg_appdata/
 
 # 편집기
 .vscode/

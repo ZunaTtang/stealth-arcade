@@ -12,7 +12,7 @@ Stealth TXT Reader 와 같은 은폐 구조를 그대로 이어받았다.
   · 전역 핫키(Ctrl+Alt+Z)로 어느 창에 있든 즉시 숨기고 복귀
   · Esc 즉시 숨기기, 포커스를 잃으면 자동 숨기기(옵션)
   · 배경 지우기 — 창 배경 알파를 0 까지 내려 뿌요만 떠 있게 만든다
-  · 클릭 통과(WS_EX_TRANSPARENT) + 전역 조작키로 통과 상태에서도 플레이
+  · 다른 창을 쓰는 중에도 전역 조작키로 플레이 / 빠른 재시작
   · Qt.Tool 창 모드로 작업 표시줄/Alt+Tab 목록에서 제외, 트레이 상주
 """
 
@@ -69,9 +69,6 @@ IPC_KEY = "StealthPuyo.SingleInstance.v1"
 WM_HOTKEY = 0x0312
 MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_NOREPEAT = 0x0001, 0x0002, 0x0004, 0x4000
 MOD_WIN = 0x0008
-GWL_EXSTYLE = -20
-WS_EX_LAYERED = 0x00080000
-WS_EX_TRANSPARENT = 0x00000020
 
 # Qt 키 코드 -> Windows 가상 키 코드. 영문자·숫자는 두 체계가 값이 같아 따로 안 쓴다.
 QT_TO_VK = {
@@ -140,6 +137,7 @@ LOCAL_ACTIONS = [
     ("hard",           "즉시 낙하",         "Space"),
     ("pause",          "일시정지",          "P"),
     ("new_game",       "새 게임",           "F2"),
+    ("restart",        "빠른 재시작",       "R"),
     ("hide",           "즉시 숨기기",       "Esc"),
     ("settings",       "설정 열기",         "F1"),
     ("menu",           "메뉴 열기",         "Ctrl+R"),
@@ -151,12 +149,12 @@ LOCAL_ACTIONS = [
     ("toggle_top",     "항상 위 토글",      "Ctrl+T"),
     ("toggle_panel",   "사이드 패널 토글",  "Ctrl+H"),
     ("toggle_topbar",  "상단바 토글",       "Ctrl+J"),
-    ("toggle_through", "클릭 통과 토글",    "Ctrl+M"),
 ]
 
 GLOBAL_ACTIONS = [
     ("g_hide",    "숨기기 / 복귀",     "Ctrl+Alt+Z"),
-    ("g_through", "클릭 통과 토글",    "Ctrl+Alt+X"),
+    # Ctrl+Alt+R 은 다른 프로그램이 자주 선점해서, 앱 키(F2)와 짝이 되는 조합으로 둔다
+    ("g_restart", "빠른 재시작",       "Ctrl+Alt+F2"),
     ("g_bg",      "배경 지우기 토글",  "Ctrl+Alt+B"),
     ("g_pause",   "일시정지 토글",     "Ctrl+Alt+P"),
     ("g_left",    "왼쪽 이동",         "Ctrl+Alt+Left"),
@@ -184,7 +182,7 @@ DEFAULTS = {
     "show_ghost": True,           # 착지 위치 표시
     "btn_hide": True,
     "btn_settings": True,
-    "btn_through": True,
+    "btn_restart": True,
     "window_mode": "hidden",      # hidden | disguise | normal
     "disguise_title": "메모장",
     # ---- 은폐 ----
@@ -309,17 +307,6 @@ class HotkeyManager:
         return self.by_id.get(hotkey_id)
 
 
-def set_click_through(hwnd, enabled):
-    """WS_EX_TRANSPARENT 를 켜면 마우스 입력이 뒤쪽 창으로 통과한다."""
-    user32 = ctypes.windll.user32
-    ex = user32.GetWindowLongW(int(hwnd), GWL_EXSTYLE)
-    if enabled:
-        ex |= WS_EX_LAYERED | WS_EX_TRANSPARENT
-    else:
-        ex &= ~WS_EX_TRANSPARENT
-    user32.SetWindowLongW(int(hwnd), GWL_EXSTYLE, ex)
-
-
 def mix(c1, c2, t):
     """두 색을 t 비율로 섞는다 (t=0 이면 c1, t=1 이면 c2)."""
     return QColor(int(c1.red() * (1 - t) + c2.red() * t),
@@ -372,13 +359,11 @@ def tool_icon(kind, color, active=True):
         p.drawPath(path)
         p.setBrush(ink)
         p.drawEllipse(QPointF(10, 9), 1.8, 1.8)
-    elif kind == "through":                 # 커서 화살표 — 켜져 있으면 속을 채운다
-        p.drawLine(6, 4, 6, 13)
-        p.drawLine(6, 4, 13, 10)
-        p.drawLine(6, 13, 13, 10)
-        if active:
-            p.setBrush(ink)
-            p.drawPolygon(*[QPointF(6, 4), QPointF(13, 10), QPointF(6, 13)])
+    elif kind == "restart":                 # 원형 화살표 = 다시 시작
+        p.drawArc(QRectF(4.5, 3.5, 11, 11), 40 * 16, 280 * 16)
+        p.setBrush(ink)
+        p.drawPolygon(*[QPointF(13.6, 2.6), QPointF(15.4, 7.4),
+                        QPointF(10.6, 6.2)])
     p.end()
     return QIcon(pix)
 
@@ -411,9 +396,14 @@ MARGIN_START = 96.0
 MARGIN_STEP = 16.0
 
 LOCK_DELAY = 420.0            # 바닥에 닿은 뒤 굳기까지 (회전/이동으로 초기화)
-SETTLE_MS = 90.0              # 낙하 정리 후 잠깐 멈춤
+SETTLE_MS = 80.0              # 낙하가 끝난 뒤 터짐을 판정하기까지의 짧은 멈춤
 POP_MS = 400.0                # 뿌요가 터지는 연출 시간
-GARBAGE_MS = 180.0            # 방해뿌요가 떨어지는 연출 시간
+GARBAGE_MS = 180.0            # 방해뿌요 예고에서 낙하까지의 뜸
+
+# 중력 — 떠 있는 뿌요가 실제로 떨어지는 속도 (셀/ms). 가속이 붙는다.
+FALL_V0 = 0.006
+FALL_ACC = 0.00013
+FALL_VMAX = 0.048
 
 
 def chain_power(n):
@@ -431,10 +421,15 @@ class PuyoGame:
 
     상태 흐름
         play    조작 가능 — 낙하, 이동, 회전
-        settle  낙하 정리(공중에 뜬 뿌요 떨어뜨리기) 후 짧은 대기
+        drop    공중에 뜬 뿌요가 아래로 떨어지는 중 (중력)
+        settle  낙하가 멈춘 뒤 터질 덩어리를 판정하기까지의 짧은 대기
         pop     4개 이상 붙은 뿌요가 터지는 연출
-        garbage 방해뿌요가 떨어지는 연출
+        garbage 방해뿌요가 떨어질 차례를 기다리는 뜸
         over    게임 오버
+
+    굳힌 직후 · 터진 직후 · 방해뿌요가 쏟아진 직후에는 반드시 drop 을 지나며,
+    낙하가 완전히 끝난 뒤에만 다음 터짐을 판정한다. 그래서 연쇄가 한 단계씩
+    눈에 보인다.
     """
 
     def __init__(self, opt):
@@ -460,6 +455,9 @@ class PuyoGame:
         self.leftover = 0.0                # 상쇄 계산에서 남은 점수
         self.chain_score = 0               # 이번 연쇄로 번 점수 (상쇄 계산용)
         self.pop_cells = []                # 지금 터지는 중인 좌표
+        # 낙하 애니메이션 — {(x, 도착 행): 남은 거리(셀)}. 그림은 이만큼 위에 그린다.
+        self.fall_offsets = {}
+        self.fall_vel = 0.0
         self.pop_gain = 0                  # 방금 연쇄로 얻은 점수 (표시용)
         self.all_clear = False
         self.msg = ""
@@ -617,11 +615,15 @@ class PuyoGame:
         self.chain_score = 0
         self.pop_gain = 0
         self.apply_gravity()
-        self.state = "settle"
-        self.timer = SETTLE_MS
+        self._fall_or_settle()
 
     def apply_gravity(self):
-        """열마다 공중에 뜬 뿌요를 아래로 모은다."""
+        """열마다 공중에 뜬 뿌요를 아래로 모은다.
+
+        칸의 값은 바로 최종 위치로 옮기고, 움직인 거리만 fall_offsets 에 적어
+        둔다. 그림은 그만큼 위에서 시작해 내려오므로 눈에는 떨어지는 것으로
+        보이면서, 규칙 판정은 항상 최종 위치를 기준으로 한다.
+        """
         moved = False
         for x in range(COLS):
             write = ROWS - 1
@@ -632,9 +634,23 @@ class PuyoGame:
                 if write != y:
                     self.grid[write][x] = v
                     self.grid[y][x] = None
+                    self.fall_offsets[(x, write)] = float(write - y)
                     moved = True
                 write -= 1
         return moved
+
+    def _fall_or_settle(self):
+        """떨어질 것이 있으면 낙하 연출로, 없으면 곧바로 터짐 판정으로."""
+        if self.fall_offsets:
+            self.fall_vel = FALL_V0
+            self.state = "drop"
+        else:
+            self.state = "settle"
+            self.timer = SETTLE_MS
+
+    def fall_offset(self, x, y):
+        """그리기용 — 이 칸의 뿌요가 아직 얼마나 위에 있나 (셀)."""
+        return self.fall_offsets.get((x, y), 0.0)
 
     def find_groups(self):
         """4개 이상 붙은 같은 색 덩어리들. 숨은 줄(row 0)은 세지 않는다."""
@@ -700,8 +716,7 @@ class PuyoGame:
             self.grid[y][x] = None
         self.pop_cells = []
         self.apply_gravity()
-        self.state = "settle"
-        self.timer = SETTLE_MS
+        self._fall_or_settle()
 
     def board_empty(self):
         return all(v is None for row in self.grid for v in row)
@@ -756,6 +771,8 @@ class PuyoGame:
             left = counts[x]
             while left > 0 and free_y >= 0:
                 self.grid[free_y][x] = GARBAGE
+                # 천장 위에서 함께 내려오도록 시작 높이를 맞춘다
+                self.fall_offsets[(x, free_y)] = float(free_y) + 1.5
                 free_y -= 1
                 left -= 1
         return n
@@ -807,6 +824,20 @@ class PuyoGame:
             else:
                 self.ground_ms = 0.0
 
+        elif self.state == "drop":
+            # 떠 있는 뿌요를 가속하며 내린다. 다 내려앉은 뒤에 터짐을 본다.
+            self.fall_vel = min(FALL_VMAX, self.fall_vel + FALL_ACC * dt)
+            step = self.fall_vel * dt
+            for key, left in list(self.fall_offsets.items()):
+                left -= step
+                if left <= 0.0:
+                    del self.fall_offsets[key]
+                else:
+                    self.fall_offsets[key] = left
+            if not self.fall_offsets:
+                self.state = "settle"
+                self.timer = SETTLE_MS
+
         elif self.state == "settle":
             self.timer -= dt
             if self.timer <= 0:
@@ -823,8 +854,9 @@ class PuyoGame:
                 dropped = self.drop_garbage(self.pending)
                 self.pending -= dropped
                 self.flash("방해뿌요 %d개" % dropped)
-                self.apply_gravity()
-                self.spawn()
+                # 낙하 -> settle -> (터질 것 없음) -> _finish_chain -> spawn 으로
+                # 이어진다. 30개를 넘겨 남은 방해뿌요가 있으면 한 번 더 쏟아진다.
+                self._fall_or_settle()
 
 
 # =============================================================== 뿌요 그리기
@@ -959,21 +991,24 @@ class BoardWidget(QWidget):
                 v = g.grid[row][col]
                 if v is None:
                     continue
-                alpha = 0.45 if row == HIDDEN_ROW else 1.0
+                off = g.fall_offset(col, row)
+                alpha = 0.45 if row == HIDDEN_ROW and off == 0.0 else 1.0
                 if (col, row) in pop:
                     alpha *= 0.25 if blink else 1.0
                 conn = []
-                if v != GARBAGE:
+                # 떨어지는 중인 뿌요는 아직 붙지 않았으므로 연결부를 그리지 않는다
+                if v != GARBAGE and off == 0.0:
                     for d, dx, dy in (("u", 0, -1), ("d", 0, 1),
                                       ("l", -1, 0), ("r", 1, 0)):
                         nx, ny = col + dx, row + dy
                         if (0 <= nx < COLS and HIDDEN_ROW < ny < ROWS
                                 and g.grid[ny][nx] == v
+                                and g.fall_offset(nx, ny) == 0.0
                                 and (col, row) not in pop
                                 and (nx, ny) not in pop
                                 and row != HIDDEN_ROW):
                             conn.append(d)
-                paint_puyo(p, col * c, self.y_of(row), c, v, conn, alpha)
+                paint_puyo(p, col * c, self.y_of(row) - off * c, c, v, conn, alpha)
 
         # ---- 착지 위치 표시 ----
         if g.cur and g.state == "play" and s["show_ghost"]:
@@ -1007,7 +1042,9 @@ class BoardWidget(QWidget):
                               QColor("#ff8a95"))
             self._center_text(p, "%s점" % format(g.score, ","), c * 0.46,
                               self.height() * 0.50, QColor("#ffffff"))
-            self._center_text(p, self.win.key_hint("new_game") + " 새 게임",
+            self._center_text(p, "%s / %s 다시 시작"
+                              % (self.win.key_hint("new_game"),
+                                 self.win.key_hint("restart")),
                               c * 0.38, self.height() * 0.59, QColor("#c9d1e0"))
         p.end()
 
@@ -1200,7 +1237,7 @@ class SettingsDialog(QDialog):
         holder = QWidget()
         holder.setLayout(icons)
         for key, label in (("btn_hide", "숨기기"), ("btn_settings", "설정"),
-                           ("btn_through", "클릭 통과")):
+                           ("btn_restart", "재시작")):
             chk = QCheckBox(label)
             chk.setChecked(bool(s[key]))
             chk.toggled.connect(lambda on, k=key: self._set_flag(k, on))
@@ -1379,7 +1416,6 @@ class PuyoWindow(QWidget):
         super().__init__()
         self.cfg = cfg
         self.paused = False
-        self.click_through = False
         self._drag_origin = None
         self._dialog_open = False
         self._hotkey_failures = []
@@ -1403,7 +1439,7 @@ class PuyoWindow(QWidget):
 
         self.buttons = {}
         for kind, tip, slot in (
-                ("through", "클릭 통과 (Ctrl+Alt+X)", self.toggle_click_through),
+                ("restart", "새 게임 (F2 / R)", self.new_game),
                 ("settings", "설정 (F1)", self.open_settings),
                 ("hide", "숨기기 (Esc / Ctrl+Alt+Z)", self.panic_hide)):
             btn = QPushButton()
@@ -1419,7 +1455,7 @@ class PuyoWindow(QWidget):
         bar.setContentsMargins(4, 0, 2, 0)
         bar.setSpacing(1)
         bar.addWidget(self.info_label, 1)
-        for kind in ("through", "settings", "hide"):
+        for kind in ("restart", "settings", "hide"):
             bar.addWidget(self.buttons[kind])
 
         # ---------------------------------------------------- 필드 / 패널
@@ -1471,11 +1507,12 @@ class PuyoWindow(QWidget):
         self.rebuild_keymap()
         self._build_tray()
 
-        pos = cfg.s.get("pos") or DEFAULTS["pos"]
-        self.move(int(pos[0]), int(pos[1]))
         self.apply_style()
         self.apply_window_mode()
         self.resync_size()
+        # 창 크기가 정해진 뒤에 위치를 잡는다 — 화면 밖 좌표는 보정된다
+        pos = cfg.s.get("pos") or DEFAULTS["pos"]
+        self.move(self.sane_pos(pos[0], pos[1]))
 
         self.hotkey_pressed.connect(self.on_global_hotkey)
         self.tick.start()
@@ -1493,6 +1530,7 @@ class PuyoWindow(QWidget):
             "hard": self.game.hard_drop,
             "pause": self.toggle_pause,
             "new_game": self.new_game,
+            "restart": self.new_game,
             "hide": self.panic_hide,
             "settings": self.open_settings,
             "menu": lambda: self.show_menu(QCursor.pos()),
@@ -1504,10 +1542,9 @@ class PuyoWindow(QWidget):
             "toggle_top": self.toggle_on_top,
             "toggle_panel": lambda: self.toggle_part("show_panel", "사이드 패널"),
             "toggle_topbar": lambda: self.toggle_part("show_topbar", "상단바"),
-            "toggle_through": self.toggle_click_through,
             # 전역 전용
             "g_hide": self.toggle_visible,
-            "g_through": self.toggle_click_through,
+            "g_restart": self.new_game,
             "g_bg": self.toggle_bg,
             "g_pause": self.toggle_pause,
             "g_left": lambda: self.game.move(-1),
@@ -1519,11 +1556,10 @@ class PuyoWindow(QWidget):
         }
 
     # 일시정지 중에도 받아야 하는 동작 — 나머지 조작키는 막는다
-    ALWAYS_ON = {"pause", "new_game", "hide", "settings", "menu", "toggle_bg",
-                 "opacity_up", "opacity_down", "cell_up", "cell_down",
-                 "toggle_top", "toggle_panel", "toggle_topbar",
-                 "toggle_through", "g_hide", "g_through", "g_bg", "g_pause",
-                 "g_quit"}
+    ALWAYS_ON = {"pause", "new_game", "restart", "hide", "settings", "menu",
+                 "toggle_bg", "opacity_up", "opacity_down", "cell_up",
+                 "cell_down", "toggle_top", "toggle_panel", "toggle_topbar",
+                 "g_hide", "g_restart", "g_bg", "g_pause", "g_quit"}
 
     def rebuild_keymap(self):
         """설정에 저장된 키로 '키 조합 -> 동작 id' 표를 다시 만든다.
@@ -1596,7 +1632,7 @@ class PuyoWindow(QWidget):
         self.tray = QSystemTrayIcon(self._make_icon(), self)
         menu = QMenu()
         menu.addAction("보이기 / 숨기기", self.toggle_visible)
-        menu.addAction("새 게임", self.new_game)
+        menu.addAction("새 게임 / 재시작", self.new_game)
         menu.addAction("설정…", self.open_settings)
         menu.addSeparator()
         menu.addAction("종료", self.quit_app)
@@ -1639,12 +1675,10 @@ class PuyoWindow(QWidget):
                 "QPushButton { border: none; background: transparent; }"
                 "QPushButton:hover { background: %s; border-radius: 3px; }"
                 % hover.name())
-            on = self.click_through if kind == "through" else True
-            btn.setIcon(tool_icon(kind, dim.name() if not on else ink.name(),
-                                  active=on))
+            btn.setIcon(tool_icon(kind, ink.name()))
             btn.setVisible(bool(s.get({"hide": "btn_hide",
                                        "settings": "btn_settings",
-                                       "through": "btn_through"}[kind], True)))
+                                       "restart": "btn_restart"}[kind], True)))
         self.setWindowOpacity(float(s["opacity"]))
         if hasattr(self, "tray_menu"):
             self.tray_menu.setStyleSheet(menu_stylesheet(s["bg_color"]))
@@ -1725,6 +1759,24 @@ class PuyoWindow(QWidget):
         self.schedule_save()
 
     # --------------------------------------------------------- 창 모드/플래그
+    def sane_pos(self, x, y):
+        """화면 밖 좌표를 보이는 화면 안으로 되돌린다.
+
+        창 모드를 바꿀 때 HWND 가 새로 만들어지면서 Qt 가 엉뚱한 좌표를 주는
+        일이 있고, 모니터를 빼면 저장해 둔 위치가 아무 화면에도 없게 된다.
+        그대로 두면 실행해도 창이 보이지 않으므로, 상단바를 잡을 수 있는지를
+        기준으로 확인하고 안 되면 주 화면에 다시 앉힌다.
+        """
+        w = max(80, self.width())
+        h = max(80, self.height())
+        grab = QPoint(int(x) + w // 2, int(y) + 10)     # 상단바 가운데
+        for screen in QApplication.screens():
+            if screen.availableGeometry().contains(grab):
+                return QPoint(int(x), int(y))
+        g = QApplication.primaryScreen().availableGeometry()
+        return QPoint(g.x() + max(0, (g.width() - w) // 2),
+                      g.y() + max(0, (g.height() - h) // 3))
+
     def apply_window_mode(self):
         s = self.cfg.s
         flags = Qt.Tool if s["window_mode"] == "hidden" else Qt.Window
@@ -1740,19 +1792,9 @@ class PuyoWindow(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground, bool(s["frameless"]))
         self.setWindowTitle(s["disguise_title"] if s["window_mode"] == "disguise"
                             else APP_NAME)
-        self.move(pos)
+        self.move(self.sane_pos(pos.x(), pos.y()))
         if was_visible:
             self.show()
-        # setWindowFlags 로 HWND 가 새로 만들어지므로 클릭 통과를 다시 적용
-        if self.click_through:
-            set_click_through(self.winId(), True)
-
-    def toggle_click_through(self):
-        self.click_through = not self.click_through
-        set_click_through(self.winId(), self.click_through)
-        self.apply_style()
-        self.flash("클릭 통과 " + ("ON — Ctrl+Alt 키로 조작"
-                                if self.click_through else "OFF"))
 
     # --------------------------------------------------------------- 숨기기
     def panic_hide(self):
@@ -1769,8 +1811,6 @@ class PuyoWindow(QWidget):
             self.show()
             self.raise_()
             self.activateWindow()
-            if self.click_through:
-                set_click_through(self.winId(), True)
             if self.paused:
                 self.flash("%s 로 재개" % self.key_hint("pause"))
 
@@ -1819,10 +1859,12 @@ class PuyoWindow(QWidget):
         self.save_state()
 
     def new_game(self):
+        """빠른 재시작 — 확인 절차 없이 즉시 새 판. 일시정지·게임 오버 중에도 된다."""
         if self.game.score:
             self._record_best()
         self.game.reset()
-        self.paused = False
+        # 숨어 있는 동안 전역 키로 재시작했다면 그대로 얼려 둔다
+        self.paused = (not self.isVisible()) and bool(self.cfg.s["pause_on_hide"])
         self.flash("새 게임")
         self.board.update()
 
@@ -1868,7 +1910,9 @@ class PuyoWindow(QWidget):
         menu = QMenu(self)
         menu.setStyleSheet(menu_stylesheet(s["bg_color"]))
 
-        menu.addAction("새 게임\t%s" % self.key_hint("new_game"), self.new_game)
+        menu.addAction("새 게임\t%s / %s" % (self.key_hint("new_game"),
+                                          self.key_hint("restart")),
+                       self.new_game)
         menu.addAction(("재개" if self.paused else "일시정지")
                        + "\t%s" % self.key_hint("pause"), self.toggle_pause)
         menu.addSeparator()
@@ -1882,11 +1926,6 @@ class PuyoWindow(QWidget):
                                  self.toggle_on_top)
         act_top.setCheckable(True)
         act_top.setChecked(bool(s["always_on_top"]))
-
-        act_ct = menu.addAction("클릭 통과\t%s" % self.key_hint("toggle_through"),
-                                self.toggle_click_through)
-        act_ct.setCheckable(True)
-        act_ct.setChecked(self.click_through)
 
         act_panel = menu.addAction("사이드 패널\t%s" % self.key_hint("toggle_panel"),
                                    lambda: self.toggle_part("show_panel", "사이드 패널"))
@@ -1951,7 +1990,9 @@ class PuyoWindow(QWidget):
         self.save_timer.start()
 
     def save_state(self):
-        self.cfg.s["pos"] = [self.x(), self.y()]
+        # 화면 밖 좌표는 저장하지 않는다 — 다음 실행에서 창을 못 찾게 된다
+        p = self.sane_pos(self.x(), self.y())
+        self.cfg.s["pos"] = [p.x(), p.y()]
         self.cfg.save()
 
     def closeEvent(self, event):
