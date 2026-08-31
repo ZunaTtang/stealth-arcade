@@ -465,17 +465,29 @@ class PuyoGame:
         self.rain_t = 0.0
         self.over = False
         self._seq_i = 0
+        self._pick_colors()
         self._fill_queue()
         self.spawn()
 
     # --------------------------------------------------------------- 조각
+    def _pick_colors(self):
+        """이 판에서 쓸 색을 정한다 — 판이 시작될 때 한 번만.
+
+        본가와 같은 방식이다.
+          · 5색 팔레트에서 설정한 개수만큼 무작위로 골라 한 판 동안 고정한다.
+            (그래서 판마다 색 조합이 달라진다)
+          · 처음 세 조는 그중 3색만 쓴다. 어떤 색을 뺄지도 무작위로 정한다.
+
+        한 판 동안 고정하는 것이 중요하다. 도중에 색 수를 바꿔 버리면 판에
+        남은 색이 다시는 나오지 않아 영구히 지울 수 없는 뿌요가 생긴다.
+        """
+        n = max(3, min(5, int(self.opt("num_colors"))))
+        self.colors = random.sample(range(len(PUYO_COLORS)), n)
+        self.opening = (random.sample(self.colors, 3) if n > 3
+                        else list(self.colors))
+
     def _rand_pair(self):
-        n = int(self.opt("num_colors"))
-        n = max(3, min(5, n))
-        pool = list(range(n))
-        # 본가처럼 처음 세 조는 3색으로 제한한다 — 첫 수부터 막히지 않게.
-        if self._seq_i < 3 and n > 3:
-            pool = pool[:3]
+        pool = self.opening if self._seq_i < 3 else self.colors
         self._seq_i += 1
         return [random.choice(pool), random.choice(pool)]
 
@@ -1391,6 +1403,14 @@ class SettingsDialog(QDialog):
     def _set_game(self, key, value):
         self.w.cfg.s[key] = value
         self.w.schedule_save()
+        if key == "num_colors":
+            # 색 세트는 한 판 동안 고정이다. 아직 아무것도 놓지 않았으면 바로
+            # 새 색으로 다시 깔고, 진행 중인 판은 건드리지 않는다.
+            g = self.w.game
+            if g.score == 0 and g.board_empty():
+                g.reset()
+            else:
+                self.w.flash("색 수는 다음 게임부터 적용됩니다")
         self.w.board.update()
 
     def _key_changed(self, action_id, seq_text):
