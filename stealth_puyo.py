@@ -1564,7 +1564,9 @@ class PuyoWindow(QWidget):
         super().__init__()
         self.cfg = cfg
         self.paused = False
-        self._drag_origin = None
+        self._drag_last = None        # 드래그 중 마지막 전역 좌표
+        self._drag_from = None        # 드래그를 시작한 전역 좌표
+        self._dragging = False
         self._dialog_open = False
         self._hotkey_failures = []
         self._flash_text = ""
@@ -1580,6 +1582,10 @@ class PuyoWindow(QWidget):
         self.topbar.setFixedHeight(20)
         self.info_label = QLabel("Esc 숨기기 · Ctrl+Alt+Z 복귀")
         self.info_label.setMouseTracking(True)
+        # QLabel 기본값(LinksAccessibleByMouse)이 마우스를 삼켜 그 위에서는
+        # 창을 끌 수 없게 된다. 글자는 읽기용이니 마우스를 통과시킨다.
+        self.info_label.setTextInteractionFlags(Qt.NoTextInteraction)
+        self.info_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         # 라벨의 자연 너비가 창 폭을 끌어올리지 않도록 최소 너비를 직접 준다.
         # 넘치는 글자는 _set_info() 에서 잘라 준다.
         self.info_label.setMinimumWidth(1)
@@ -1614,18 +1620,26 @@ class PuyoWindow(QWidget):
         self.stat_label.setMouseTracking(True)
         self.stat_label.setWordWrap(True)
         self.stat_label.setTextFormat(Qt.RichText)
+        self.stat_label.setTextInteractionFlags(Qt.NoTextInteraction)
+        self.stat_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.stat_label.setMinimumWidth(1)
+        # 창 크기는 resync_size() 가 보드 기준으로 정한다. 글자가 몇 줄로
+        # 접히든 창을 늘리지 않도록 크기 요구를 아예 내놓지 않게 한다.
+        self.stat_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        self.stat_label.setMinimumSize(1, 0)
 
         self.panel = QWidget(self)
+        self.panel.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         panel_lay = QVBoxLayout(self.panel)
         panel_lay.setContentsMargins(6, 2, 4, 2)
         panel_lay.setSpacing(6)
+        self.panel_lay = panel_lay
         panel_lay.addWidget(self.next_view)
         panel_lay.addWidget(self.stat_label, 1)
 
         mid = QHBoxLayout()
         mid.setContentsMargins(0, 0, 0, 0)
-        mid.setSpacing(4)
+        mid.setSpacing(self.MID_GAP)
         mid.addWidget(self.board)
         mid.addWidget(self.panel)
 
@@ -1836,7 +1850,13 @@ class PuyoWindow(QWidget):
         self.update()
 
     def resync_size(self):
-        """셀 크기·패널 표시 상태에 맞춰 창을 다시 재단한다."""
+        """셀 크기·패널 표시 상태에 맞춰 창을 다시 재단한다.
+
+        창 크기를 sizeHint 에 맡기지 않고 눈에 보이는 부분에서 직접 계산한다.
+        sizeHint 는 점수 글자가 몇 줄로 접히는지에 따라 달라지는데, 점수가
+        길어지면 창이 내용보다 커지고 아래쪽에 아무것도 그려지지 않는 띠가
+        남는다. 그 띠도 창이라서 클릭을 먹어 버린다.
+        """
         s = self.cfg.s
         self.topbar.setVisible(bool(s["show_topbar"]))
         self.panel.setVisible(bool(s["show_panel"]))
@@ -1845,8 +1865,26 @@ class PuyoWindow(QWidget):
         panel_w = max(74, self.next_view.width() + 16)
         self.panel.setFixedWidth(panel_w)
         self.stat_label.setFixedWidth(panel_w - 12)
-        self.layout().activate()
-        self.setFixedSize(self.sizeHint())
+        pm = self.panel_lay.contentsMargins()
+        stat_h = (self.board.height() - pm.top() - pm.bottom()
+                  - self.next_view.height() - self.panel_lay.spacing())
+        self.stat_label.setFixedHeight(max(0, stat_h))
+
+        # isVisible() 이 아니라 설정값으로 판단한다 — 창이 아직 화면에 올라오기
+        # 전에는 자식이 모두 '안 보임' 이어서 첫 계산이 어긋난다.
+        show_panel = bool(s["show_panel"])
+        show_topbar = bool(s["show_topbar"])
+        lay = self.layout()
+        m = lay.contentsMargins()
+        gap = lay.spacing()
+        width = m.left() + self.board.width() + m.right()
+        if show_panel:
+            width += self.MID_GAP + panel_w
+        height = m.top() + self.board.height() + m.bottom()
+        if show_topbar:
+            height += self.topbar.height() + gap
+        self.setFixedSize(width, height)
+        lay.activate()
         self.apply_style()
 
     def paintEvent(self, _event):
@@ -2023,17 +2061,23 @@ class PuyoWindow(QWidget):
         mode = "방해뿌요" if self.cfg.s["mode"] == "garbage" else "엔드리스"
         # 싹쓸이 보너스는 다음 공격에 나가므로 대기 중임을 계속 보여 준다
         zen = ("<br><br><span style='color:#ffe066'>싹쓸이 대기<br>"
-               "다음 공격 +%d</span>" % ALL_CLEAR_BONUS) if g.zenkeshi else ""
-        self.stat_label.setText(
-            "점수<br><b>%s</b>"
-            "<br><br>연쇄 <b>%d</b>"
-            "<br>최고연쇄 <b>%d</b>"
-            "<br>레벨 <b>%d</b>"
-            "<br><br>최고점수<br><b>%s</b>"
-            "<br><br>%s<br>전송 <b>%d</b><br>예고 <b>%d</b>%s"
-            % (format(g.score, ","), g.chain, g.max_chain, g.level(),
-               format(int(self.cfg.data["best"]), ","), mode, g.sent,
-               g.pending, zen))
+               "+%d</span>" % ALL_CLEAR_BONUS) if g.zenkeshi else ""
+        if self.stat_label.height() < 200:
+            # 셀을 작게 줄이면 패널도 얇아진다 — 꼭 필요한 것만 남긴다
+            self.stat_label.setText(
+                "<b>%s</b><br>연쇄 <b>%d</b><br>Lv <b>%d</b>%s"
+                % (format(g.score, ","), g.chain, g.level(), zen))
+        else:
+            self.stat_label.setText(
+                "점수<br><b>%s</b>"
+                "<br><br>연쇄 <b>%d</b>"
+                "<br>최고연쇄 <b>%d</b>"
+                "<br>레벨 <b>%d</b>"
+                "<br><br>최고점수<br><b>%s</b>"
+                "<br><br>%s<br>전송 <b>%d</b><br>예고 <b>%d</b>%s"
+                % (format(g.score, ","), g.chain, g.max_chain, g.level(),
+                   format(int(self.cfg.data["best"]), ","), mode, g.sent,
+                   g.pending, zen))
         if self._flash_text:
             return
         self._set_info("%s점 · %d연쇄" % (format(g.score, ","), g.chain))
@@ -2109,26 +2153,54 @@ class PuyoWindow(QWidget):
         self.save_state()
         self.activateWindow()
 
+    MID_GAP = 4                   # 보드와 사이드 패널 사이 간격
+
     # ------------------------------------------------------- 창 끌어 옮기기
+    DRAG_SLOP = 3                 # 이만큼 끌기 전에는 창을 움직이지 않는다
+
     def mousePressEvent(self, event):
+        """본문 어디를 잡아도 창을 옮길 수 있다 (상단바 아이콘은 제외)."""
         if event.button() == Qt.LeftButton:
-            self._drag_origin = event.globalPos() - self.frameGeometry().topLeft()
+            self._drag_last = event.globalPos()
+            self._drag_from = event.globalPos()
+            self._dragging = False
             event.accept()
 
     def mouseMoveEvent(self, event):
-        if self._drag_origin and event.buttons() & Qt.LeftButton:
-            self.move(event.globalPos() - self._drag_origin)
-            event.accept()
+        if self._drag_last is None or not (event.buttons() & Qt.LeftButton):
+            return
+        if not self._dragging:
+            moved = event.globalPos() - self._drag_from
+            if abs(moved.x()) < self.DRAG_SLOP and abs(moved.y()) < self.DRAG_SLOP:
+                return                        # 손떨림으로 창이 밀리지 않게
+            self._dragging = True
+        # 절대 좌표 대신 '움직인 만큼'을 더한다. 배율이 다른 모니터로 넘어가며
+        # 창이 한 번 튀어도 그 뒤로 계속 어긋나지 않는다.
+        delta = event.globalPos() - self._drag_last
+        self._drag_last = event.globalPos()
+        self.move(self.pos() + delta)
+        event.accept()
 
     def mouseReleaseEvent(self, event):
-        if self._drag_origin:
-            self._drag_origin = None
-            self.schedule_save()
+        if self._drag_last is not None:
+            self._drag_last = None
+            if self._dragging:
+                self._dragging = False
+                self.move(self.sane_pos(self.x(), self.y()))
+                self.schedule_save()
         super().mouseReleaseEvent(event)
 
     def wheelEvent(self, event):
-        """휠로 창 투명도를 바로 조절한다."""
-        self.bump_opacity(0.04 if event.angleDelta().y() > 0 else -0.04)
+        """Ctrl+휠로 창 투명도를 조절한다.
+
+        수식키를 걸어 둔다. 그냥 휠에 걸어 두면 창 위에서 무심코 스크롤한
+        것만으로 화면이 사라질 만큼 투명해진다.
+        """
+        if event.modifiers() & Qt.ControlModifier:
+            self.bump_opacity(0.04 if event.angleDelta().y() > 0 else -0.04)
+            event.accept()
+        else:
+            event.ignore()
 
     # --------------------------------------------------------------- 저장
     def schedule_save(self):
