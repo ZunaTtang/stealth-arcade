@@ -167,7 +167,15 @@ OpenGL 21MB, QML/Quick, OpenSSL)을 걷어내 40MB → 24MB 로 줄여 둔 것�
 python -m PyInstaller --noconfirm Notepad.spec
 ```
 
+**반드시 spec 으로 빌드한다.** `stealth_puyo.py` 를 PyInstaller 에 직접 넘기면
+PyInstaller 가 `Notepad.spec` 을 새로 만들어 덮어쓴다. 그러면 위 설정이 전부
+사라져 결과물이 40MB 로 돌아가고 스펙의 주석과 목록도 날아간다. `build.bat` 도
+spec 을 쓰도록 해 두었다.
+
 실행 파일 이름은 spec 의 `name` 값으로 바꾼다.
+
+빌드할 때 앱이 실행 중이면 `dist` 안의 exe 가 잠겨 실패한다. `Ctrl+Alt+Q` 로
+종료한 뒤 다시 빌드한다.
 
 ## 6. 코드 구조
 
