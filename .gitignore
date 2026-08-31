@@ -1,0 +1,25 @@
+# PyInstaller 빌드 산출물
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 테스트 산출물
+_preview*.png
+_live*.png
+_smoke_appdata/
+
+# 편집기
+.vscode/
+.idea/
+*.swp
+
+# Windows
+Thumbs.db
+desktop.ini
