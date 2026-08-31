@@ -31,7 +31,7 @@ from PyQt5.QtCore import (
 )
 from PyQt5.QtGui import (
     QColor, QCursor, QFont, QFontMetrics, QIcon, QKeySequence, QPainter,
-    QPainterPath, QPen, QPixmap, QRadialGradient,
+    QPainterPath, QPalette, QPen, QPixmap, QRadialGradient,
 )
 from PyQt5.QtNetwork import QLocalServer, QLocalSocket
 from PyQt5.QtWidgets import (
@@ -189,7 +189,7 @@ DEFAULTS = {
     "pause_on_hide": True,        # 숨기면 자동 일시정지
     "hide_on_blur": False,        # 포커스를 잃으면 자동으로 숨기기
     # ---- 게임 ----
-    "num_colors": 4,              # 3 | 4 | 5
+    "num_colors": 4,              # 3 | 4
     "mode": "endless",            # endless | garbage
     "margin_time": True,          # 마진 타임 — 시간이 지나면 상쇄가 어려워진다
     "speed": 1.0,                 # 낙하 속도 배율
@@ -375,9 +375,12 @@ HIDDEN_ROW = 0
 SPAWN_COL = 2                 # 3열 — 여기가 막히면 게임 오버 (본가와 동일)
 GARBAGE = -1                  # 방해뿌요
 
-# 뿌요 색 (5색). 설정에서 3~5색을 고른다.
-PUYO_COLORS = ["#ff4f5e", "#4aa8ff", "#ffd23f", "#4ddc79", "#b46cff"]
+# 뿌요 색 — 빨강 / 파랑 / 노랑 / 초록. 설정에서 3~4색을 고른다.
+# 본가 뿌요테트의 기본 대전 색 수도 4색이다.
+PUYO_COLORS = ["#ff4f5e", "#4aa8ff", "#ffd23f", "#4ddc79"]
 GARBAGE_COLOR = "#9aa3b2"
+
+SEQUENCE_LEN = 256            # 본가처럼 이 길이의 순서표를 만들어 되풀이한다
 
 # 회전 방향 — 0:위 1:오른쪽 2:아래 3:왼쪽 (자뿌요가 축뿌요 기준 어디에 있는지)
 ROT_DIRS = [(0, -1), (1, 0), (0, 1), (-1, 0)]
@@ -387,7 +390,8 @@ CHAIN_POWER = [0, 8, 16, 32, 64, 96, 128, 160, 192, 224,
                256, 288, 320, 352, 384, 416, 448, 480, 512]
 COLOR_BONUS = {1: 0, 2: 3, 3: 6, 4: 12, 5: 24}
 GROUP_BONUS = {4: 0, 5: 2, 6: 3, 7: 4, 8: 5, 9: 6, 10: 7}
-ALL_CLEAR_BONUS = 2100        # 전체 지우기
+ALL_CLEAR_BONUS = 2100        # 전체 지우기 점수 — 다음 공격에 붙는다
+ALL_CLEAR_GARBAGE = 30        # 전체 지우기로 다음 공격에 얹히는 방해뿌요
 TARGET_POINT = 70.0           # 방해뿌요 1개를 보내는 데 필요한 점수
 # 마진 타임 배율 — 96초 이후 16초마다 한 칸씩 내려간다 (본가와 같은 방식)
 MARGIN_TABLE = [1.0, 0.75, 0.5, 0.4, 0.3, 0.25, 0.2, 0.15, 0.1, 0.05,
@@ -459,7 +463,7 @@ class PuyoGame:
         self.fall_offsets = {}
         self.fall_vel = 0.0
         self.pop_gain = 0                  # 방금 연쇄로 얻은 점수 (표시용)
-        self.all_clear = False
+        self.zenkeshi = False              # 다음 공격에 얹을 전체 지우기 보너스
         self.msg = ""
         self.msg_t = 0.0
         self.rain_t = 0.0
@@ -471,25 +475,31 @@ class PuyoGame:
 
     # --------------------------------------------------------------- 조각
     def _pick_colors(self):
-        """이 판에서 쓸 색을 정한다 — 판이 시작될 때 한 번만.
+        """이 판에서 쓸 색과 조 순서표를 만든다 — 판이 시작될 때 한 번만.
 
-        본가와 같은 방식이다.
-          · 5색 팔레트에서 설정한 개수만큼 무작위로 골라 한 판 동안 고정한다.
-            (그래서 판마다 색 조합이 달라진다)
+        본가 뿌요테트와 같은 방식이다.
+          · 팔레트에서 설정한 개수만큼 색을 골라 한 판 동안 고정한다.
+          · 길이 %d 의 순서표를 미리 뽑아 두고 끝까지 쓰면 처음으로 돌아간다.
+          · 각 뿌요는 독립 균등 추첨이다. 그래서 같은 색 조(더블)가 1/색수
+            확률로 나오고, 어느 색도 더 자주 나오지 않는다.
           · 처음 세 조는 그중 3색만 쓴다. 어떤 색을 뺄지도 무작위로 정한다.
 
-        한 판 동안 고정하는 것이 중요하다. 도중에 색 수를 바꿔 버리면 판에
+        색 세트를 한 판 동안 고정하는 것이 중요하다. 도중에 바꿔 버리면 판에
         남은 색이 다시는 나오지 않아 영구히 지울 수 없는 뿌요가 생긴다.
-        """
-        n = max(3, min(5, int(self.opt("num_colors"))))
+        """ % SEQUENCE_LEN
+        n = max(3, min(len(PUYO_COLORS), int(self.opt("num_colors"))))
         self.colors = random.sample(range(len(PUYO_COLORS)), n)
         self.opening = (random.sample(self.colors, 3) if n > 3
                         else list(self.colors))
+        self.sequence = [
+            (random.choice(self.opening if i < 3 else self.colors),
+             random.choice(self.opening if i < 3 else self.colors))
+            for i in range(SEQUENCE_LEN)]
 
     def _rand_pair(self):
-        pool = self.opening if self._seq_i < 3 else self.colors
+        a, b = self.sequence[self._seq_i % SEQUENCE_LEN]
         self._seq_i += 1
-        return [random.choice(pool), random.choice(pool)]
+        return [a, b]
 
     def _fill_queue(self):
         while len(self.queue) < 3:
@@ -745,11 +755,8 @@ class PuyoGame:
         return max(1.0, TARGET_POINT * m)
 
     def _finish_chain(self):
-        if self.chain and self.board_empty():
-            self.score += ALL_CLEAR_BONUS
-            self.chain_score += ALL_CLEAR_BONUS
-            self.all_clear = True
-            self.flash("전체 지우기! +%d" % ALL_CLEAR_BONUS)
+        # 이번 연쇄로 판을 비웠나. 보너스는 지금 주지 않는다 (아래 참고)
+        cleared_all = bool(self.chain) and self.board_empty()
 
         # 번 점수를 방해뿌요로 환산해 들어올 것부터 상쇄한다
         if self.chain_score:
@@ -757,11 +764,24 @@ class PuyoGame:
             total = self.chain_score + self.leftover
             n = int(total // tp)
             self.leftover = total - n * tp
+            # 지난 판에 예약해 둔 전체 지우기 보너스를 이 공격에 얹는다
+            if self.zenkeshi:
+                self.zenkeshi = False
+                self.score += ALL_CLEAR_BONUS
+                n += ALL_CLEAR_GARBAGE
+                self.flash("싹쓸이 보너스! +%d, 방해뿌요 +%d"
+                           % (ALL_CLEAR_BONUS, ALL_CLEAR_GARBAGE))
             if n:
                 cancel = min(n, self.pending)
                 self.pending -= cancel
                 self.sent += n - cancel
             self.chain_score = 0
+
+        # 본가와 같이 보너스는 '다음 공격'에 붙는다. 즉 싹쓸이한 턴에는 표시만
+        # 되고, 그 다음 연쇄를 터뜨리는 턴에 점수와 방해뿌요가 함께 나간다.
+        if cleared_all:
+            self.zenkeshi = True
+            self.flash("전체 지우기! 다음 공격에 보너스")
 
         if self.pending > 0:
             self.state = "garbage"
@@ -1140,6 +1160,106 @@ class NextWidget(QWidget):
 
 
 # =============================================================== 설정 패널
+# 설정 창 색. 팔레트와 스타일시트를 함께 준다 —— 스타일시트만 주면 거기서
+# 빠뜨린 위젯(탭 이름, 스크롤 영역 안쪽, 콤보박스 펼친 목록 등)이 시스템 기본
+# 흰 배경으로 남는데 글자색은 밝은 색이 상속되어 글자가 보이지 않는다.
+DLG_BG = "#1b1f2a"       # 창 바탕
+DLG_FIELD = "#141822"    # 입력칸 바탕
+DLG_BTN = "#2b3140"      # 버튼 바탕
+DLG_LINE = "#333a49"     # 테두리
+DLG_INK = "#e8ecf4"      # 글자
+DLG_DIM = "#aeb6c8"      # 흐린 글자
+DLG_SEL = "#3d63ff"      # 선택 표시
+
+
+def force_fusion_style():
+    """Qt 스타일을 Fusion 으로 고정한다.
+
+    윈도우 기본 스타일(windowsvista)은 스타일시트를 준 위젯과 그렇지 않은
+    위젯을 섞어 그려서, 버튼 같은 일부만 시스템 흰색으로 남는다. 글자색은
+    밝은 색이 적용되므로 흰 바탕에 흰 글씨가 되어 읽을 수 없다. Fusion 은
+    팔레트를 그대로 따르므로 이런 뒤섞임이 생기지 않는다.
+    """
+    QApplication.setStyle("Fusion")
+
+
+def dialog_palette():
+    """스타일시트가 닿지 않는 곳까지 어두운 색으로 맞춘다."""
+    pal = QPalette()
+    bg, field, ink = QColor(DLG_BG), QColor(DLG_FIELD), QColor(DLG_INK)
+    for role in (QPalette.Window, QPalette.Button, QPalette.ToolTipBase):
+        pal.setColor(role, bg)
+    pal.setColor(QPalette.Base, field)
+    pal.setColor(QPalette.AlternateBase, bg)
+    for role in (QPalette.WindowText, QPalette.Text, QPalette.ButtonText,
+                 QPalette.ToolTipText, QPalette.BrightText):
+        pal.setColor(role, ink)
+    pal.setColor(QPalette.PlaceholderText, QColor(DLG_DIM))
+    pal.setColor(QPalette.Highlight, QColor(DLG_SEL))
+    pal.setColor(QPalette.HighlightedText, QColor("#ffffff"))
+    pal.setColor(QPalette.Disabled, QPalette.WindowText, QColor(DLG_DIM))
+    pal.setColor(QPalette.Disabled, QPalette.Text, QColor(DLG_DIM))
+    pal.setColor(QPalette.Disabled, QPalette.ButtonText, QColor(DLG_DIM))
+    return pal
+
+
+def dialog_stylesheet():
+    """바탕색을 지정하는 곳에서는 글자색도 반드시 같이 지정한다."""
+    return """
+    QDialog { background-color: %(bg)s; }
+    QLabel, QCheckBox { background-color: transparent; color: %(ink)s; }
+    QTabWidget::pane { background-color: %(bg)s; border: 1px solid %(line)s;
+                       border-radius: 4px; }
+    QTabBar::tab { background-color: %(btn)s; color: %(dim)s;
+                   padding: 6px 16px; margin-right: 2px;
+                   border: 1px solid %(line)s; border-bottom: none;
+                   border-top-left-radius: 4px; border-top-right-radius: 4px; }
+    QTabBar::tab:selected { background-color: %(bg)s; color: #ffffff; }
+    QTabBar::tab:hover { background-color: #39404f; color: %(ink)s; }
+    QScrollArea { background-color: %(bg)s; border: none; }
+    QScrollArea > QWidget > QWidget { background-color: %(bg)s; color: %(ink)s; }
+    QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QKeySequenceEdit {
+        background-color: %(field)s; color: %(ink)s;
+        border: 1px solid %(line)s; border-radius: 4px; padding: 3px;
+        selection-background-color: %(sel)s; selection-color: #ffffff; }
+    QComboBox QAbstractItemView {
+        background-color: %(field)s; color: %(ink)s;
+        border: 1px solid %(line)s; outline: none;
+        selection-background-color: %(sel)s; selection-color: #ffffff; }
+    QPushButton { background-color: %(btn)s; color: %(ink)s;
+                  border: 1px solid #3a4152; border-radius: 4px;
+                  padding: 4px 8px; }
+    QPushButton:hover { background-color: #39404f; }
+    QPushButton:pressed { background-color: #222736; }
+    QScrollBar:vertical { background: %(bg)s; width: 10px; margin: 0; }
+    QScrollBar:horizontal { background: %(bg)s; height: 10px; margin: 0; }
+    QScrollBar::handle { background: #3a4152; border-radius: 5px; }
+    QScrollBar::handle:vertical { min-height: 24px; }
+    QScrollBar::handle:horizontal { min-width: 24px; }
+    QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
+    QScrollBar::add-page, QScrollBar::sub-page { background: none; }
+    QToolTip { background-color: %(btn)s; color: %(ink)s;
+               border: 1px solid #3a4152; }
+    """ % {"bg": DLG_BG, "field": DLG_FIELD, "btn": DLG_BTN, "line": DLG_LINE,
+           "ink": DLG_INK, "dim": DLG_DIM, "sel": DLG_SEL}
+
+
+def style_dialog(dlg):
+    """설정 창을 어둡게 칠한다.
+
+    팔레트를 자손 위젯 하나하나에 직접 넣는 것이 핵심이다. 부모에게만 주고
+    상속에 맡기면, 스크롤 영역 안쪽 위젯이나 QKeySequenceEdit 내부처럼 Qt 가
+    자기 팔레트를 따로 들고 있는 위젯이 시스템 기본 흰색으로 남는다. 글자색은
+    밝은 색이 적용되어 흰 바탕에 흰 글씨가 되고, 그 항목은 읽을 수도 없고
+    무엇을 고르는지도 알 수 없게 된다.
+    """
+    pal = dialog_palette()
+    dlg.setPalette(pal)
+    for child in dlg.findChildren(QWidget):
+        child.setPalette(pal)
+    dlg.setStyleSheet(dialog_stylesheet())
+
+
 class ShortcutRow(QWidget):
     """동작 하나에 대한 키 입력칸 + 해제 / 기본값 버튼."""
 
@@ -1151,16 +1271,20 @@ class ShortcutRow(QWidget):
         self.default_seq = default_seq
 
         self.edit = QKeySequenceEdit(QKeySequence(current_seq))
-        self.edit.setMinimumWidth(120)
+        self.edit.setMinimumWidth(96)
         self.edit.editingFinished.connect(self._emit)
         self.edit.keySequenceChanged.connect(self._emit)
 
         clear = QPushButton("해제")
         clear.setToolTip("이 동작에 키를 지정하지 않음")
+        clear.setFixedWidth(42)
+        clear.setFocusPolicy(Qt.NoFocus)
         clear.clicked.connect(lambda: self.set_seq(""))
 
         reset = QPushButton("기본")
         reset.setToolTip("기본값 %s 으로" % (default_seq or "없음"))
+        reset.setFixedWidth(42)
+        reset.setFocusPolicy(Qt.NoFocus)
         reset.clicked.connect(lambda: self.set_seq(default_seq))
 
         row = QHBoxLayout(self)
@@ -1185,7 +1309,7 @@ class SettingsDialog(QDialog):
         super().__init__(win)
         self.w = win
         self.setWindowTitle("설정")
-        self.setMinimumWidth(430)
+        self.setMinimumSize(520, 560)
 
         tabs = QTabWidget()
         tabs.addTab(self._screen_tab(), "화면")
@@ -1243,7 +1367,7 @@ class SettingsDialog(QDialog):
             chk = QCheckBox(label)
             chk.setChecked(bool(s[key]))
             chk.toggled.connect(lambda on, k=key: self._set_flag(k, on))
-            form.addRow("", chk)
+            form.addRow(chk)
 
         icons = QHBoxLayout()
         holder = QWidget()
@@ -1254,7 +1378,8 @@ class SettingsDialog(QDialog):
             chk.setChecked(bool(s[key]))
             chk.toggled.connect(lambda on, k=key: self._set_flag(k, on))
             icons.addWidget(chk)
-        form.addRow("상단바 아이콘", holder)
+        form.addRow(QLabel("상단바 아이콘"))
+        form.addRow(holder)
 
         mode = QComboBox()
         mode.addItem("숨은 창 (작업 표시줄·Alt+Tab 에서 제외)", "hidden")
@@ -1273,12 +1398,12 @@ class SettingsDialog(QDialog):
         blur = QCheckBox("포커스를 잃으면 자동으로 숨기기")
         blur.setChecked(bool(s["hide_on_blur"]))
         blur.toggled.connect(lambda on: self._set_flag("hide_on_blur", on))
-        form.addRow("", blur)
+        form.addRow(blur)
 
         pause = QCheckBox("숨길 때 자동 일시정지")
         pause.setChecked(bool(s["pause_on_hide"]))
         pause.toggled.connect(lambda on: self._set_flag("pause_on_hide", on))
-        form.addRow("", pause)
+        form.addRow(pause)
         return page
 
     # ------------------------------------------------------------- 게임 탭
@@ -1288,9 +1413,11 @@ class SettingsDialog(QDialog):
         form = QFormLayout(page)
 
         colors = QComboBox()
-        for n in (3, 4, 5):
+        choices = list(range(3, len(PUYO_COLORS) + 1))
+        for n in choices:
             colors.addItem("%d색" % n, n)
-        colors.setCurrentIndex([3, 4, 5].index(int(s["num_colors"])))
+        current = max(3, min(len(PUYO_COLORS), int(s["num_colors"])))
+        colors.setCurrentIndex(choices.index(current))
         colors.currentIndexChanged.connect(
             lambda i: self._set_game("num_colors", colors.itemData(i)))
         form.addRow("뿌요 색 수", colors)
@@ -1306,7 +1433,7 @@ class SettingsDialog(QDialog):
         margin = QCheckBox("마진 타임 (시간이 지나면 상쇄가 어려워진다)")
         margin.setChecked(bool(s["margin_time"]))
         margin.toggled.connect(lambda on: self._set_flag("margin_time", on))
-        form.addRow("", margin)
+        form.addRow(margin)
 
         speed = QDoubleSpinBox()
         speed.setRange(0.3, 3.0)
@@ -1330,6 +1457,7 @@ class SettingsDialog(QDialog):
         outer = QVBoxLayout(page)
         area = QScrollArea()
         area.setWidgetResizable(True)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         inner = QWidget()
         form = QFormLayout(inner)
 
@@ -1893,15 +2021,19 @@ class PuyoWindow(QWidget):
         if not self.cfg.s["show_panel"] and not self.cfg.s["show_topbar"]:
             return
         mode = "방해뿌요" if self.cfg.s["mode"] == "garbage" else "엔드리스"
+        # 싹쓸이 보너스는 다음 공격에 나가므로 대기 중임을 계속 보여 준다
+        zen = ("<br><br><span style='color:#ffe066'>싹쓸이 대기<br>"
+               "다음 공격 +%d</span>" % ALL_CLEAR_BONUS) if g.zenkeshi else ""
         self.stat_label.setText(
             "점수<br><b>%s</b>"
             "<br><br>연쇄 <b>%d</b>"
             "<br>최고연쇄 <b>%d</b>"
             "<br>레벨 <b>%d</b>"
             "<br><br>최고점수<br><b>%s</b>"
-            "<br><br>%s<br>전송 <b>%d</b><br>예고 <b>%d</b>"
+            "<br><br>%s<br>전송 <b>%d</b><br>예고 <b>%d</b>%s"
             % (format(g.score, ","), g.chain, g.max_chain, g.level(),
-               format(int(self.cfg.data["best"]), ","), mode, g.sent, g.pending))
+               format(int(self.cfg.data["best"]), ","), mode, g.sent,
+               g.pending, zen))
         if self._flash_text:
             return
         self._set_info("%s점 · %d연쇄" % (format(g.score, ","), g.chain))
@@ -1970,14 +2102,7 @@ class PuyoWindow(QWidget):
         was_paused = self.paused
         self.paused = True
         dlg = SettingsDialog(self)
-        dlg.setStyleSheet(
-            "QDialog, QWidget { background-color: #1b1f2a; color: #e8ecf4; }"
-            "QPushButton { background-color: #2b3140; border: 1px solid #3a4152;"
-            " border-radius: 4px; padding: 4px 8px; }"
-            "QPushButton:hover { background-color: #39404f; }"
-            "QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QKeySequenceEdit"
-            " { background-color: #141822; border: 1px solid #333a49;"
-            "   border-radius: 4px; padding: 3px; }")
+        style_dialog(dlg)
         dlg.exec_()
         self.paused = was_paused
         self._dialog_open = False
@@ -2032,6 +2157,7 @@ def main():
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    force_fusion_style()
     app.setFont(QFont(resolve_ui_font(), 9))
 
     # ---- 단일 인스턴스: 이미 떠 있으면 그 창을 꺼내고 끝낸다 ----
