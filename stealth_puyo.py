@@ -2842,16 +2842,36 @@ class PuyoWindow(QWidget):
         self.tray = QSystemTrayIcon(self._make_icon(), self)
         menu = QMenu()
         menu.addAction("보이기 / 숨기기", self.toggle_visible)
+
+        # 창을 꺼내지 않고도 트레이에서 바로 게임을 고를 수 있게 한다
+        self.tray_game_acts = {}
+        if len(GAMES) > 1:
+            sub = menu.addMenu("게임")
+            for key, spec in GAMES.items():
+                act = sub.addAction(spec.label,
+                                    lambda checked=False, k=key: self.switch_game(k))
+                act.setCheckable(True)
+                self.tray_game_acts[key] = act
+            self.tray_game_menu = sub
+        else:
+            self.tray_game_menu = None
+
         menu.addAction("새 게임 / 재시작", self.new_game)
         menu.addAction("설정…", self.open_settings)
         menu.addSeparator()
         menu.addAction("종료", self.quit_app)
-        menu.setStyleSheet(menu_stylesheet(self.cfg.s["bg_color"]))
+        # 열릴 때마다 지금 게임에 체크를 다시 찍는다 (메뉴는 한 번만 만든다)
+        menu.aboutToShow.connect(self._sync_tray_menu)
         self.tray_menu = menu
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(self._tray_activated)
         self.tray.show()
+        self._sync_tray_menu()
         self.note_hotkey_status()
+
+    def _sync_tray_menu(self):
+        for key, act in self.tray_game_acts.items():
+            act.setChecked(key == self.cfg.game)
 
     def _tray_activated(self, reason):
         if reason in (QSystemTrayIcon.DoubleClick, QSystemTrayIcon.Trigger):
@@ -2891,7 +2911,10 @@ class PuyoWindow(QWidget):
                                        "restart": "btn_restart"}[kind], True)))
         self.setWindowOpacity(float(s["opacity"]))
         if hasattr(self, "tray_menu"):
-            self.tray_menu.setStyleSheet(menu_stylesheet(s["bg_color"]))
+            sheet = menu_stylesheet(s["bg_color"])
+            self.tray_menu.setStyleSheet(sheet)
+            if getattr(self, "tray_game_menu", None):
+                self.tray_game_menu.setStyleSheet(sheet)
             self.tray.setIcon(self._make_icon())
         self.board.update()
         if self.next_view is not None:
@@ -3134,7 +3157,8 @@ class PuyoWindow(QWidget):
         if self.next_view is not None:
             self.panel_lay.insertWidget(0, self.next_view)
 
-        self.paused = False
+        # 숨어 있는 동안 트레이에서 바꿨다면 새 판을 얼려 둔다 (새 게임과 같은 규칙)
+        self.paused = (not self.isVisible()) and bool(self.cfg.s["pause_on_hide"])
         self.rebuild_keymap()
         self.resync_size()
         self.flash("%s 시작" % self.spec.label)
