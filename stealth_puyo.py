@@ -1385,6 +1385,809 @@ PUYO = register_game(GameSpec(
 ))
 
 
+# =============================================================== 테트리스 규칙
+# 본가(뿌요뿌요 테트리스 / 테트리스 가이드라인)를 따른다.
+TCOLS = 10                    # 가로 10칸
+TVIS = 20                     # 눈에 보이는 20줄
+THID = 2                      # 그 위의 숨은 줄 — 조각이 여기서 나온다
+TROWS = TVIS + THID
+
+# I S Z L J T O 순서. 색도 가이드라인 색을 따른다.
+TETRIS_COLORS = ["#40d5f0", "#5ce65c", "#ff5f5f", "#ffa53d", "#4a7dff",
+                 "#c060ff", "#ffe14a"]
+TET_NAMES = ["I", "S", "Z", "L", "J", "T", "O"]
+TET_I, TET_S, TET_Z, TET_L, TET_J, TET_T, TET_O = range(7)
+
+# 회전칸 크기와 처음 모양 (칸 안의 좌표, y 는 아래로 증가)
+TET_BOX = {TET_I: 4, TET_O: 3, TET_S: 3, TET_Z: 3, TET_L: 3, TET_J: 3, TET_T: 3}
+TET_SPAWN = {
+    TET_I: [(0, 1), (1, 1), (2, 1), (3, 1)],
+    TET_S: [(1, 0), (2, 0), (0, 1), (1, 1)],
+    TET_Z: [(0, 0), (1, 0), (1, 1), (2, 1)],
+    TET_L: [(2, 0), (0, 1), (1, 1), (2, 1)],
+    TET_J: [(0, 0), (0, 1), (1, 1), (2, 1)],
+    TET_T: [(1, 0), (0, 1), (1, 1), (2, 1)],
+    TET_O: [(1, 0), (2, 0), (1, 1), (2, 1)],
+}
+
+
+def _rot_cw(cells, n):
+    """칸 안에서 시계 방향으로 한 번 돌린다."""
+    return sorted((n - 1 - y, x) for x, y in cells)
+
+
+def _build_shapes():
+    shapes = {}
+    for kind, base in TET_SPAWN.items():
+        n = TET_BOX[kind]
+        states = [sorted(base)]
+        for _ in range(3):
+            states.append(_rot_cw(states[-1], n))
+        if kind == TET_O:                 # O 는 돌아도 그대로다
+            states = [sorted(base)] * 4
+        shapes[kind] = states
+    return shapes
+
+
+TET_SHAPES = _build_shapes()
+
+# SRS 벽 밀기 표. (회전 전, 회전 후) -> 시도할 (dx, dy) 들.
+# 원표는 y 가 위로 증가하므로 여기서는 부호를 뒤집어 담았다.
+_SRS_JLSTZ = {
+    (0, 1): [(0, 0), (-1, 0), (-1, -1), (0, 2), (-1, 2)],
+    (1, 0): [(0, 0), (1, 0), (1, 1), (0, -2), (1, -2)],
+    (1, 2): [(0, 0), (1, 0), (1, 1), (0, -2), (1, -2)],
+    (2, 1): [(0, 0), (-1, 0), (-1, -1), (0, 2), (-1, 2)],
+    (2, 3): [(0, 0), (1, 0), (1, -1), (0, 2), (1, 2)],
+    (3, 2): [(0, 0), (-1, 0), (-1, 1), (0, -2), (-1, -2)],
+    (3, 0): [(0, 0), (-1, 0), (-1, 1), (0, -2), (-1, -2)],
+    (0, 3): [(0, 0), (1, 0), (1, -1), (0, 2), (1, 2)],
+}
+_SRS_I = {
+    (0, 1): [(0, 0), (-2, 0), (1, 0), (-2, 1), (1, -2)],
+    (1, 0): [(0, 0), (2, 0), (-1, 0), (2, -1), (-1, 2)],
+    (1, 2): [(0, 0), (-1, 0), (2, 0), (-1, -2), (2, 1)],
+    (2, 1): [(0, 0), (1, 0), (-2, 0), (1, 2), (-2, -1)],
+    (2, 3): [(0, 0), (2, 0), (-1, 0), (2, -1), (-1, 2)],
+    (3, 2): [(0, 0), (-2, 0), (1, 0), (-2, 1), (1, -2)],
+    (3, 0): [(0, 0), (1, 0), (-2, 0), (1, 2), (-2, -1)],
+    (0, 3): [(0, 0), (-1, 0), (2, 0), (-1, -2), (2, 1)],
+}
+# 180도 회전은 원표에 없다. 본가에서 쓰는 것과 같은 느낌으로, 제자리에서
+# 안 되면 위아래·좌우로 한 칸씩만 밀어 본다.
+_SRS_180 = [(0, 0), (0, -1), (1, 0), (-1, 0), (1, -1), (-1, -1), (0, 1)]
+
+TET_LOCK_DELAY = 500.0        # 바닥에 닿은 뒤 굳기까지
+TET_LOCK_RESETS = 15          # 이동·회전으로 미룰 수 있는 횟수
+TET_CLEAR_MS = 220.0          # 줄이 사라지는 연출
+TET_SPAWN_MS = 90.0           # 다음 조각이 나오기까지의 뜸
+TET_NEXT_COUNT = 5            # NEXT 몇 개를 보여 주나
+
+# 줄 지우기 점수 (레벨 곱하기 전). 가이드라인 값.
+TET_LINE_SCORE = {0: 0, 1: 100, 2: 300, 3: 500, 4: 800}
+TET_TSPIN_SCORE = {0: 400, 1: 800, 2: 1200, 3: 1600}
+TET_MINI_SCORE = {0: 100, 1: 200, 2: 400}
+TET_PC_SCORE = {1: 800, 2: 1200, 3: 1800, 4: 2000}
+# 상대에게 보내는 줄 수 (뿌요테트 공격표)
+TET_ATTACK = {1: 0, 2: 1, 3: 2, 4: 4}
+TET_TSPIN_ATTACK = {0: 0, 1: 2, 2: 4, 3: 6}
+TET_MINI_ATTACK = {0: 0, 1: 0, 2: 1}
+TET_PC_ATTACK = 10
+# 콤보 보너스 (콤보 1부터)
+TET_COMBO_ATTACK = [0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5]
+
+
+def tet_gravity_ms(level):
+    """가이드라인 낙하 속도 — 한 칸 내려가는 데 걸리는 시간(ms)."""
+    lv = max(1, min(20, level))
+    sec = (0.8 - (lv - 1) * 0.007) ** (lv - 1)
+    return max(16.0, sec * 1000.0)
+
+
+class TetrisGame:
+    """화면과 무관한 테트리스 규칙.
+
+    상태 흐름
+        play    조작 가능
+        clear   지운 줄이 사라지는 연출
+        spawn   다음 조각이 나오기 전 짧은 뜸
+        over    게임 오버
+
+    본가를 따르는 것
+        · SRS 회전과 벽 밀기 표 (I 와 나머지가 다른 표를 쓴다)
+        · 7-bag — 일곱 조각을 섞어 한 묶음씩 내보낸다
+        · 홀드는 조각마다 한 번
+        · 굳기 지연 0.5초, 이동·회전으로 15번까지 미룰 수 있다
+        · T-스핀 3코너 판정 (앞 두 코너가 비면 미니)
+        · B2B, 콤보, 퍼펙트 클리어, 가이드라인 점수와 중력 곡선
+    """
+
+    def __init__(self, opt):
+        self.opt = opt
+        self.reset()
+
+    # ------------------------------------------------------------- 초기화
+    def reset(self):
+        self.grid = [[None] * TCOLS for _ in range(TROWS)]
+        self.bag = []
+        self.queue = []
+        self.cur = None
+        self.held = None
+        self.hold_used = False
+        self.state = "play"
+        self.timer = 0.0
+        self.fall = 0.0
+        self.ground_ms = 0.0
+        self.lock_resets = 0
+        self.score = 0
+        self.lines = 0
+        self.pieces = 0
+        self.elapsed = 0.0
+        self.combo = -1
+        self.max_combo = 0
+        self.b2b = False
+        self.tspins = 0
+        self.tetrises = 0
+        self.pending = 0
+        self.sent = 0
+        self.leftover = 0.0
+        self.clear_rows = []
+        self.last_action = ""          # 화면에 띄울 마지막 성과
+        self.msg = ""
+        self.msg_t = 0.0
+        self.rain_t = 0.0
+        self.over = False
+        self._last_kick = 0
+        self._last_was_rotate = False
+        self._fill_queue()
+        self.spawn()
+
+    # --------------------------------------------------------------- 조각
+    def _fill_queue(self):
+        while len(self.queue) <= TET_NEXT_COUNT:
+            if not self.bag:
+                self.bag = list(range(7))
+                random.shuffle(self.bag)
+            self.queue.append(self.bag.pop())
+
+    def cells(self, cur=None):
+        c = cur or self.cur
+        if not c:
+            return []
+        return [(c["x"] + dx, c["y"] + dy, c["kind"])
+                for dx, dy in TET_SHAPES[c["kind"]][c["rot"]]]
+
+    def free(self, x, y):
+        if x < 0 or x >= TCOLS or y >= TROWS:
+            return False
+        if y < 0:
+            return True
+        return self.grid[y][x] is None
+
+    def fits(self, x, y, rot, kind):
+        for dx, dy in TET_SHAPES[kind][rot]:
+            if not self.free(x + dx, y + dy):
+                return False
+        return True
+
+    def spawn(self, kind=None):
+        self._fill_queue()
+        if kind is None:
+            kind = self.queue.pop(0)
+            self._fill_queue()
+        # 가이드라인 등장 위치 — 가운데, 숨은 줄에서 나온다
+        x = 3
+        y = 0
+        if not self.fits(x, y, 0, kind):
+            self.cur = None
+            self.over = True
+            self.state = "over"
+            return
+        self.cur = {"kind": kind, "x": x, "y": y, "rot": 0}
+        self.fall = 0.0
+        self.ground_ms = 0.0
+        self.lock_resets = 0
+        self.hold_used = False
+        self._last_was_rotate = False
+        self.pieces += 1
+        self.state = "play"
+
+    def grounded(self):
+        c = self.cur
+        return bool(c) and not self.fits(c["x"], c["y"] + 1, c["rot"], c["kind"])
+
+    # --------------------------------------------------------------- 조작
+    def _touch(self):
+        """이동·회전에 성공하면 굳기를 미뤄 준다 (횟수 제한)."""
+        if self.grounded() and self.lock_resets < TET_LOCK_RESETS:
+            self.lock_resets += 1
+            self.ground_ms = 0.0
+
+    def move(self, dx):
+        if self.state != "play" or not self.cur:
+            return False
+        c = self.cur
+        if self.fits(c["x"] + dx, c["y"], c["rot"], c["kind"]):
+            c["x"] += dx
+            self._last_was_rotate = False
+            self._touch()
+            return True
+        return False
+
+    def _try_rotate(self, new_rot, kicks):
+        c = self.cur
+        for i, (dx, dy) in enumerate(kicks):
+            if self.fits(c["x"] + dx, c["y"] + dy, new_rot, c["kind"]):
+                c["x"] += dx
+                c["y"] += dy
+                c["rot"] = new_rot
+                self._last_kick = i
+                self._last_was_rotate = True
+                self._touch()
+                return True
+        return False
+
+    def rotate(self, dir_):
+        if self.state != "play" or not self.cur:
+            return False
+        c = self.cur
+        if c["kind"] == TET_O:
+            return False
+        new_rot = (c["rot"] + dir_ + 4) % 4
+        table = _SRS_I if c["kind"] == TET_I else _SRS_JLSTZ
+        return self._try_rotate(new_rot, table[(c["rot"], new_rot)])
+
+    def rotate_180(self):
+        if self.state != "play" or not self.cur:
+            return False
+        if self.cur["kind"] == TET_O:
+            return False
+        return self._try_rotate((self.cur["rot"] + 2) % 4, _SRS_180)
+
+    def soft_drop(self):
+        if self.state != "play" or not self.cur:
+            return
+        c = self.cur
+        if self.fits(c["x"], c["y"] + 1, c["rot"], c["kind"]):
+            c["y"] += 1
+            self.score += 1                    # 소프트 드롭 1칸 1점
+            self.fall = 0.0
+            self._last_was_rotate = False
+        else:
+            self.lock()
+
+    def hard_drop(self):
+        if self.state != "play" or not self.cur:
+            return
+        c = self.cur
+        moved = 0
+        while self.fits(c["x"], c["y"] + 1, c["rot"], c["kind"]):
+            c["y"] += 1
+            moved += 1
+        self.score += moved * 2                # 하드 드롭 1칸 2점
+        self._last_was_rotate = False
+        self.lock()
+
+    def ghost_y(self):
+        c = self.cur
+        if not c:
+            return None
+        y = c["y"]
+        while self.fits(c["x"], y + 1, c["rot"], c["kind"]):
+            y += 1
+        return y
+
+    def hold(self):
+        """조각마다 한 번. 들고 있던 것과 바꾼다."""
+        if self.state != "play" or not self.cur or self.hold_used:
+            return False
+        if not self.opt("use_hold"):
+            return False
+        kind = self.cur["kind"]
+        swap = self.held
+        self.held = kind
+        if swap is None:
+            self.spawn()
+        else:
+            self.spawn(swap)
+        if self.over:
+            return False
+        self.hold_used = True
+        self.flash("홀드")
+        return True
+
+    # ------------------------------------------------------------ 굳히기
+    def _corners_filled(self):
+        """T 조각 가운데 칸을 둘러싼 네 모서리 중 막힌 것들."""
+        c = self.cur
+        cx, cy = c["x"] + 1, c["y"] + 1          # 3x3 칸의 가운데
+        # 회전 상태별 '앞쪽' 두 모서리
+        front = {0: [(-1, -1), (1, -1)], 1: [(1, -1), (1, 1)],
+                 2: [(1, 1), (-1, 1)], 3: [(-1, 1), (-1, -1)]}[c["rot"]]
+        corners = [(-1, -1), (1, -1), (-1, 1), (1, 1)]
+        filled = {}
+        for dx, dy in corners:
+            filled[(dx, dy)] = not self.free(cx + dx, cy + dy)
+        return filled, front
+
+    def _detect_tspin(self):
+        """3코너 규칙. (T스핀인가, 미니인가) 를 돌려준다."""
+        c = self.cur
+        if c["kind"] != TET_T or not self._last_was_rotate:
+            return False, False
+        filled, front = self._corners_filled()
+        if sum(filled.values()) < 3:
+            return False, False
+        front_filled = sum(filled[p] for p in front)
+        # 앞 두 모서리가 모두 막혔으면 정식 T스핀, 아니면 미니.
+        # 단, 마지막 벽 밀기(다섯 번째)로 들어간 경우는 정식으로 친다.
+        mini = front_filled < 2 and self._last_kick != 4
+        return True, mini
+
+    def lock(self):
+        tspin, mini = self._detect_tspin()
+        for x, y, kind in self.cells():
+            if y < 0:
+                continue
+            self.grid[y][x] = kind
+        self.cur = None
+
+        full = [y for y in range(TROWS)
+                if all(self.grid[y][x] is not None for x in range(TCOLS))]
+        self._score_clear(full, tspin, mini)
+        if full:
+            self.clear_rows = full
+            self.state = "clear"
+            self.timer = TET_CLEAR_MS
+        else:
+            self.state = "spawn"
+            self.timer = TET_SPAWN_MS
+
+    def _score_clear(self, full, tspin, mini):
+        n = len(full)
+        level = self.level()
+        if n == 0 and not tspin:
+            self.combo = -1
+            return
+        if n == 0:
+            # 줄은 못 지웠지만 T스핀은 점수가 있다. 콤보는 끊긴다.
+            self.combo = -1
+            base = TET_MINI_SCORE[0] if mini else TET_TSPIN_SCORE[0]
+            self.score += base * level
+            self.tspins += 1
+            self.last_action = "T-스핀 미니" if mini else "T-스핀"
+            self.flash(self.last_action)
+            return
+
+        self.combo += 1
+        self.max_combo = max(self.max_combo, self.combo)
+        self.lines += n
+
+        if tspin:
+            base = (TET_MINI_SCORE.get(n, 400) if mini
+                    else TET_TSPIN_SCORE.get(n, 1600))
+            attack = (TET_MINI_ATTACK.get(n, 1) if mini
+                      else TET_TSPIN_ATTACK.get(n, 6))
+            name = ("T-스핀 미니 " if mini else "T-스핀 ") + \
+                {1: "싱글", 2: "더블", 3: "트리플"}.get(n, "")
+            hard = True
+            self.tspins += 1
+        else:
+            base = TET_LINE_SCORE.get(n, 800)
+            attack = TET_ATTACK.get(n, 4)
+            name = {1: "싱글", 2: "더블", 3: "트리플", 4: "테트리스"}.get(n, "")
+            hard = (n == 4)
+            if n == 4:
+                self.tetrises += 1
+
+        # 백투백 — 어려운 지우기가 이어지면 1.5배, 보내는 줄도 하나 더
+        if hard and self.b2b:
+            base = int(base * 1.5)
+            attack += 1
+            name = "B2B " + name
+        self.b2b = hard
+
+        gain = base * level
+        if self.combo > 0:
+            gain += 50 * self.combo * level
+            idx = min(self.combo, len(TET_COMBO_ATTACK) - 1)
+            attack += TET_COMBO_ATTACK[idx]
+            name += " %d콤보" % self.combo
+
+        # 퍼펙트 클리어 — 지울 줄을 걷어내면 판이 텅 비는가
+        occupied = {y for y in range(TROWS)
+                    if any(self.grid[y][x] is not None for x in range(TCOLS))}
+        if occupied and occupied <= set(full):
+            gain += TET_PC_SCORE.get(n, 2000) * level
+            attack += TET_PC_ATTACK
+            name = "퍼펙트 클리어"
+
+        self.score += gain
+        self.last_action = name
+        self.flash(name)
+        self._send(attack)
+
+    def _send(self, lines):
+        if lines <= 0:
+            return
+        cancel = min(lines, self.pending)
+        self.pending -= cancel
+        self.sent += lines - cancel
+
+    # ------------------------------------------------------------- 방해줄
+    def drop_garbage(self, n):
+        n = min(n, TVIS)
+        hole = random.randrange(TCOLS)
+        for _ in range(n):
+            del self.grid[0]
+            row = [GARBAGE] * TCOLS
+            row[hole] = None
+            self.grid.append(row)
+            if random.random() < 0.3:          # 가끔 구멍 위치가 바뀐다
+                hole = random.randrange(TCOLS)
+        return n
+
+    def rain_interval(self):
+        return max(4000.0, 14000.0 - self.level() * 500.0)
+
+    # ------------------------------------------------------------- 진행
+    def level(self):
+        return min(20, 1 + self.lines // 10 +
+                   (int(self.opt("start_level")) - 1))
+
+    def drop_ms(self):
+        return tet_gravity_ms(self.level()) / max(0.2, float(self.opt("speed")))
+
+    def flash(self, text, ms=1300.0):
+        self.msg = text
+        self.msg_t = ms
+
+    def _finish_clear(self):
+        gone = set(self.clear_rows)
+        kept = [row for i, row in enumerate(self.grid) if i not in gone]
+        while len(kept) < TROWS:
+            kept.insert(0, [None] * TCOLS)
+        self.grid = kept
+        self.clear_rows = []
+        self.state = "spawn"
+        self.timer = TET_SPAWN_MS
+
+    def update(self, dt):
+        if self.state == "over":
+            return
+        self.elapsed += dt
+        if self.msg_t > 0:
+            self.msg_t = max(0.0, self.msg_t - dt)
+            if self.msg_t == 0:
+                self.msg = ""
+
+        if self.state == "play":
+            if self.opt("mode") == "garbage":
+                self.rain_t += dt
+                if self.rain_t >= self.rain_interval():
+                    self.rain_t = 0.0
+                    self.pending += min(TVIS, 1 + self.level() // 3)
+            iv = self.drop_ms()
+            self.fall += dt / iv
+            while self.fall >= 1.0:
+                self.fall -= 1.0
+                c = self.cur
+                if c and self.fits(c["x"], c["y"] + 1, c["rot"], c["kind"]):
+                    c["y"] += 1
+                    self._last_was_rotate = False
+                else:
+                    self.fall = 0.0
+                    break
+            if self.grounded():
+                self.ground_ms += dt
+                if self.ground_ms >= TET_LOCK_DELAY:
+                    self.lock()
+            else:
+                self.ground_ms = 0.0
+
+        elif self.state == "clear":
+            self.timer -= dt
+            if self.timer <= 0:
+                self._finish_clear()
+
+        elif self.state == "spawn":
+            self.timer -= dt
+            if self.timer <= 0:
+                if self.pending > 0:
+                    dropped = self.drop_garbage(self.pending)
+                    self.pending -= dropped
+                    self.flash("방해줄 %d줄" % dropped)
+                self.spawn()
+
+
+# =============================================================== 테트리스 화면
+def tet_qcolor(v):
+    return QColor(GARBAGE_COLOR if v == GARBAGE else TETRIS_COLORS[v])
+
+
+def paint_block(p, left, top, cell, v, alpha=1.0):
+    """네모 블록 하나. 위쪽을 밝게, 아래쪽을 어둡게 해서 입체로 보이게 한다."""
+    base = tet_qcolor(v)
+    p.save()
+    p.setOpacity(alpha)
+    p.setPen(Qt.NoPen)
+    r = QRectF(left + 1, top + 1, cell - 2, cell - 2)
+    p.setBrush(base)
+    p.drawRoundedRect(r, cell * 0.14, cell * 0.14)
+    p.setBrush(base.lighter(145))
+    p.drawRoundedRect(QRectF(r.x(), r.y(), r.width(), r.height() * 0.32),
+                      cell * 0.12, cell * 0.12)
+    p.setBrush(base.darker(140))
+    p.drawRoundedRect(QRectF(r.x(), r.y() + r.height() * 0.78,
+                             r.width(), r.height() * 0.22),
+                      cell * 0.10, cell * 0.10)
+    p.restore()
+
+
+class TetrisBoard(QWidget):
+    """테트리스 필드."""
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.win = win
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.resync()
+
+    def cell(self):
+        return int(self.win.cfg.s["cell"])
+
+    def resync(self):
+        c = self.cell()
+        self.setFixedSize(TCOLS * c, TVIS * c)
+        self.update()
+
+    def y_of(self, row):
+        return (row - THID) * self.cell()
+
+    def paintEvent(self, _event):
+        g = self.win.game
+        s = self.win.cfg.s
+        c = self.cell()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+
+        bg = QColor(s["bg_color"])
+        bg.setAlpha(int(s["bg_alpha"]))
+        if bg.alpha():
+            p.setPen(Qt.NoPen)
+            p.setBrush(bg)
+            p.drawRoundedRect(QRectF(0, 0, self.width(), self.height()),
+                              c * 0.16, c * 0.16)
+        ga = int(s["grid_alpha"])
+        if ga:
+            p.setPen(QPen(QColor(255, 255, 255, ga), 1))
+            for x in range(TCOLS + 1):
+                p.drawLine(int(x * c), 0, int(x * c), self.height())
+            for row in range(TVIS + 1):
+                p.drawLine(0, int(row * c), self.width(), int(row * c))
+
+        blink = g.state == "clear" and int(g.timer / 55) % 2 == 0
+        for row in range(THID, TROWS):
+            for col in range(TCOLS):
+                v = g.grid[row][col]
+                if v is None:
+                    continue
+                a = 1.0
+                if row in g.clear_rows:
+                    a = 0.25 if blink else 1.0
+                paint_block(p, col * c, self.y_of(row), c, v, a)
+
+        if g.cur and g.state == "play":
+            if s["show_ghost"]:
+                gy = g.ghost_y()
+                if gy is not None and gy != g.cur["y"]:
+                    ghost = dict(g.cur)
+                    ghost["y"] = gy
+                    for x, y, kind in g.cells(ghost):
+                        if y >= THID:
+                            p.save()
+                            p.setOpacity(0.26)
+                            p.setPen(QPen(tet_qcolor(kind), max(1.0, c * 0.09)))
+                            p.setBrush(Qt.NoBrush)
+                            p.drawRoundedRect(
+                                QRectF(x * c + 2, self.y_of(y) + 2, c - 4, c - 4),
+                                c * 0.12, c * 0.12)
+                            p.restore()
+            for x, y, kind in g.cells():
+                if y >= THID:
+                    paint_block(p, x * c, self.y_of(y), c, kind)
+
+        if g.msg:
+            self._center_text(p, g.msg, c * 0.60, self.height() * 0.24,
+                              QColor("#fff6a8"))
+        if self.win.paused and not g.over:
+            self._veil(p)
+            self._center_text(p, "일시정지", c * 0.70, self.height() * 0.46,
+                              QColor("#ffffff"))
+            self._center_text(p, self.win.key_hint("pause") + " 로 재개",
+                              c * 0.36, self.height() * 0.55, QColor("#c9d1e0"))
+        if g.over:
+            self._veil(p)
+            self._center_text(p, "GAME OVER", c * 0.64, self.height() * 0.40,
+                              QColor("#ff8a95"))
+            self._center_text(p, "%s점" % format(g.score, ","), c * 0.44,
+                              self.height() * 0.50, QColor("#ffffff"))
+            self._center_text(p, "%s / %s 다시 시작"
+                              % (self.win.key_hint("new_game"),
+                                 self.win.key_hint("restart")),
+                              c * 0.36, self.height() * 0.59, QColor("#c9d1e0"))
+        p.end()
+
+    def _veil(self, p):
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(8, 10, 16, 170))
+        p.drawRoundedRect(QRectF(0, 0, self.width(), self.height()),
+                          self.cell() * 0.16, self.cell() * 0.16)
+
+    def _center_text(self, p, text, size, y, color):
+        f = QFont(UI_FONT)
+        f.setPixelSize(max(9, int(size)))
+        f.setBold(True)
+        p.setFont(f)
+        fm = p.fontMetrics()
+        try:
+            tw = fm.horizontalAdvance(text)
+        except AttributeError:
+            tw = fm.width(text)
+        path = QPainterPath()
+        path.addText(QPointF((self.width() - tw) / 2.0, y), f, text)
+        p.setPen(QPen(QColor(0, 0, 0, 200), max(2.0, size * 0.12)))
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(path)
+        p.setPen(Qt.NoPen)
+        p.setBrush(color)
+        p.drawPath(path)
+
+
+class TetrisSide(QWidget):
+    """홀드 한 칸과 NEXT 다섯 개."""
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.win = win
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.resync()
+
+    def cell(self):
+        return max(6, int(self.win.cfg.s["cell"] * 0.42))
+
+    def resync(self):
+        c = self.cell()
+        # 홀드(글자+칸) + NEXT(글자 + 다섯 개) + 예고 글자 자리
+        self.setFixedSize(c * 5,
+                          int(c * (3.4 + 1.4 + TET_NEXT_COUNT * 2.5 + 1.6)))
+        self.update()
+
+    def _draw_piece(self, p, kind, left, top, c):
+        if kind is None:
+            return
+        cells = TET_SHAPES[kind][0]
+        xs = [x for x, _ in cells]
+        ys = [y for _, y in cells]
+        w = (max(xs) - min(xs) + 1) * c
+        ox = left + (c * 4 - w) / 2.0 - min(xs) * c
+        oy = top - min(ys) * c
+        for x, y in cells:
+            paint_block(p, ox + x * c, oy + y * c, c, kind)
+
+    def paintEvent(self, _event):
+        g = self.win.game
+        c = self.cell()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        f = QFont(UI_FONT)
+        f.setPixelSize(max(8, int(c * 0.75)))
+        f.setBold(True)
+        p.setFont(f)
+
+        p.setPen(QColor(255, 255, 255, 110))
+        p.drawText(QRectF(0, 0, self.width(), c), Qt.AlignLeft | Qt.AlignVCenter,
+                   "HOLD")
+        if not g.hold_used:
+            self._draw_piece(p, g.held, 0, c * 1.2, c)
+        else:
+            p.setOpacity(0.35)
+            self._draw_piece(p, g.held, 0, c * 1.2, c)
+            p.setOpacity(1.0)
+
+        top = c * 3.6
+        p.setPen(QColor(255, 255, 255, 110))
+        p.drawText(QRectF(0, top, self.width(), c),
+                   Qt.AlignLeft | Qt.AlignVCenter, "NEXT")
+        top += c * 1.3
+        for i in range(min(TET_NEXT_COUNT, len(g.queue))):
+            p.setOpacity(1.0 if i == 0 else 0.78)
+            self._draw_piece(p, g.queue[i], 0, top + i * c * 2.5, c)
+        p.setOpacity(1.0)
+
+        if g.pending:
+            p.setPen(QColor("#ffb4b4"))
+            p.drawText(QRectF(0, self.height() - c * 1.1, self.width(), c * 1.1),
+                       Qt.AlignLeft | Qt.AlignVCenter, "예고 %d" % g.pending)
+        p.end()
+
+
+def tetris_settings_tab(dlg):
+    w = dlg.w
+    page = QWidget()
+    form = QFormLayout(page)
+
+    lv = QSpinBox()
+    lv.setRange(1, 15)
+    lv.setValue(int(w.cfg.opt("start_level")))
+    lv.valueChanged.connect(lambda v: dlg._set_game("start_level", v))
+    form.addRow("시작 레벨", lv)
+
+    mode = QComboBox()
+    mode.addItem("엔드리스 (혼자 쌓기 연습)", "endless")
+    mode.addItem("방해줄 (일정 간격으로 방해줄이 올라온다)", "garbage")
+    mode.setCurrentIndex(["endless", "garbage"].index(w.cfg.opt("mode")))
+    mode.currentIndexChanged.connect(
+        lambda i: dlg._set_game("mode", mode.itemData(i)))
+    form.addRow("모드", mode)
+
+    hold = QCheckBox("홀드 사용 (조각마다 한 번)")
+    hold.setChecked(bool(w.cfg.opt("use_hold")))
+    hold.toggled.connect(lambda on: dlg._set_game("use_hold", bool(on)))
+    form.addRow(hold)
+
+    note = QLabel(
+        "10×20 필드. SRS 회전과 벽 밀기 표(I 는 따로), 7-bag,\n"
+        "굳기 지연 0.5초에 이동·회전 15회까지 미루기,\n"
+        "T-스핀 3코너 판정, 백투백, 콤보, 퍼펙트 클리어,\n"
+        "가이드라인 점수와 중력 곡선, 뿌요테트 공격표를 따른다.")
+    note.setWordWrap(True)
+    form.addRow("규칙", note)
+    return page
+
+
+def tetris_stats(win, g, compact):
+    info = "%s점 · %d줄" % (format(g.score, ","), g.lines)
+    act = ("<br><br><span style='color:#ffe066'>%s</span>" % g.last_action
+           if g.last_action else "")
+    if compact:
+        return ("<b>%s</b><br>줄 <b>%d</b><br>Lv <b>%d</b>%s"
+                % (format(g.score, ","), g.lines, g.level(), act), info)
+    b2b = "<br>B2B <b>ON</b>" if g.b2b else ""
+    combo = "<br>콤보 <b>%d</b>" % g.combo if g.combo > 0 else ""
+    mode = "방해줄" if win.cfg.opt("mode") == "garbage" else "엔드리스"
+    return ("점수<br><b>%s</b>"
+            "<br><br>줄 <b>%d</b>"
+            "<br>레벨 <b>%d</b>"
+            "<br>테트리스 <b>%d</b>"
+            "<br>T-스핀 <b>%d</b>%s%s"
+            "<br><br>최고점수<br><b>%s</b>"
+            "<br><br>%s<br>전송 <b>%d</b><br>예고 <b>%d</b>%s"
+            % (format(g.score, ","), g.lines, g.level(), g.tetrises, g.tspins,
+               b2b, combo, format(int(win.cfg.rec.get("best", 0)), ","),
+               mode, g.sent, g.pending, act), info)
+
+
+def tetris_records(g):
+    return {"best": g.score, "best_lines": g.lines, "best_combo": g.max_combo}
+
+
+TETRIS = register_game(GameSpec(
+    key="tetris",
+    label="테트리스",
+    defaults={"start_level": 1, "mode": "endless", "use_hold": True},
+    engine=TetrisGame,
+    board=TetrisBoard,
+    side=TetrisSide,
+    stats=tetris_stats,
+    settings_tab=tetris_settings_tab,
+    actions={"left", "right", "soft", "rot_cw", "rot_cw2", "rot_ccw", "hard",
+             "hold", "rot_180",
+             "g_left", "g_right", "g_soft", "g_rot", "g_hard", "g_hold"},
+    records=tetris_records,
+))
+
+
 def force_fusion_style():
     """Qt 스타일을 Fusion 으로 고정한다.
 
