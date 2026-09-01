@@ -135,6 +135,8 @@ LOCAL_ACTIONS = [
     ("rot_cw2",        "시계 방향 (보조)",  "X"),
     ("rot_ccw",        "반시계 방향 회전",  "Z"),
     ("hard",           "즉시 낙하",         "Space"),
+    ("hold",           "홀드",              "C"),
+    ("rot_180",        "180도 회전",        "A"),
     ("pause",          "일시정지",          "P"),
     ("new_game",       "새 게임",           "F2"),
     ("restart",        "빠른 재시작",       "R"),
@@ -162,13 +164,15 @@ GLOBAL_ACTIONS = [
     ("g_soft",    "빠른 낙하",         "Ctrl+Alt+Down"),
     ("g_rot",     "시계 방향 회전",    "Ctrl+Alt+Up"),
     ("g_hard",    "즉시 낙하",         "Ctrl+Alt+Return"),
+    ("g_hold",    "홀드",              "Ctrl+Alt+H"),
     ("g_quit",    "종료",              "Ctrl+Alt+Q"),
 ]
 
 DEFAULT_KEYS = {aid: key for aid, _label, key in LOCAL_ACTIONS + GLOBAL_ACTIONS}
 ACTION_LABELS = {aid: label for aid, label, _key in LOCAL_ACTIONS + GLOBAL_ACTIONS}
 
-DEFAULTS = {
+# 게임이 무엇이든 그대로인 설정. 화면·은폐·창 위치가 여기 들어간다.
+COMMON_DEFAULTS = {
     # ---- 화면 ----
     "cell": 30,                   # 셀 한 변 픽셀 — 창 크기가 여기서 결정된다
     "bg_color": "#101418",
@@ -188,24 +192,90 @@ DEFAULTS = {
     # ---- 은폐 ----
     "pause_on_hide": True,        # 숨기면 자동 일시정지
     "hide_on_blur": False,        # 포커스를 잃으면 자동으로 숨기기
-    # ---- 게임 ----
-    "num_colors": 4,              # 3 | 4
-    "mode": "endless",            # endless | garbage
-    "margin_time": True,          # 마진 타임 — 시간이 지나면 상쇄가 어려워진다
+    # ---- 공통 게임 ----
     "speed": 1.0,                 # 낙하 속도 배율
     # ---- 위치 ----
     "pos": [320, 240],
 }
 
+# 옛 설정 파일(모든 값이 한 덩어리였다)에서 게임 쪽으로 옮겨야 하는 키
+LEGACY_GAME_KEYS = ("num_colors", "mode", "margin_time")
+
+
+# ================================================================= 게임 등록
+class GameSpec:
+    """게임 하나를 이 창에 끼우는 데 필요한 것 전부.
+
+    창·은폐 계층은 이 명세만 보고 움직인다. 새 게임을 붙일 때 PuyoWindow 나
+    Config 를 고칠 일이 없도록, 게임마다 달라지는 것을 여기 한곳에 모았다.
+
+        key           설정 파일에 쓰이는 이름
+        label         사람에게 보여 줄 이름
+        defaults      이 게임 전용 설정 (공용 설정과 이름이 겹치면 안 된다)
+        engine(opt)   규칙 객체. reset / update(dt) / move / rotate /
+                      soft_drop / hard_drop 과 score·over·state 를 제공한다
+        board(win)    필드 위젯. resync() 로 셀 크기를 다시 반영한다
+        side(win)     NEXT 같은 옆 위젯. 없으면 None
+        stats(win, game, compact) -> 사이드 패널에 넣을 글
+        settings_tab(dlg) -> 설정 창의 '게임' 탭 위젯
+        actions       이 게임이 실제로 쓰는 조작 동작 id 집합
+        records(game) -> {기록 이름: 값}. 큰 값으로만 갱신한다
+    """
+
+    def __init__(self, key, label, defaults, engine, board, stats,
+                 settings_tab, actions, records, side=None):
+        self.key = key
+        self.label = label
+        self.defaults = dict(defaults)
+        self.engine = engine
+        self.board = board
+        self.side = side
+        self.stats = stats
+        self.settings_tab = settings_tab
+        self.actions = frozenset(actions)
+        self.records = records
+
+
+GAMES = {}                        # key -> GameSpec (등록 순서 유지)
+
+
+def register_game(spec):
+    clash = set(spec.defaults) & set(COMMON_DEFAULTS)
+    if clash:
+        raise ValueError("게임 설정 이름이 공용 설정과 겹칩니다: %s" % sorted(clash))
+    unknown = spec.actions - {aid for aid, _l, _k in LOCAL_ACTIONS + GLOBAL_ACTIONS}
+    if unknown:
+        raise ValueError("동작 목록에 없는 id: %s" % sorted(unknown))
+    GAMES[spec.key] = spec
+    return spec
+
+
+def default_game():
+    return next(iter(GAMES)) if GAMES else "puyo"
+
 
 # ================================================================= 설정 저장
 class Config:
+    """설정을 공용과 게임별로 나눠 담는다.
+
+        settings  화면·은폐·창 위치 — 게임이 바뀌어도 그대로
+        games     {게임 key: 그 게임 전용 설정}
+        records   {게임 key: {기록 이름: 값}}
+        game      지금 고른 게임
+        keys      단축키 (게임과 무관하게 하나로 관리한다)
+    """
+
     def __init__(self):
         base = os.environ.get("APPDATA") or os.path.expanduser("~")
         self.dir = os.path.join(base, APP_NAME)
         self.path = os.path.join(self.dir, "config.json")
-        self.data = {"settings": dict(DEFAULTS), "keys": dict(DEFAULT_KEYS),
-                     "best": 0, "best_chain": 0}
+        self.data = {
+            "settings": dict(COMMON_DEFAULTS),
+            "games": {k: dict(sp.defaults) for k, sp in GAMES.items()},
+            "records": {k: {} for k in GAMES},
+            "game": default_game(),
+            "keys": dict(DEFAULT_KEYS),
+        }
         self.load()
 
     def load(self):
@@ -216,17 +286,46 @@ class Config:
             return
         if not isinstance(raw, dict):
             return
-        settings = dict(DEFAULTS)
-        settings.update(raw.get("settings") or {})
+        old = raw.get("settings") or {}
+
+        settings = dict(COMMON_DEFAULTS)
+        for k, v in old.items():
+            if k in COMMON_DEFAULTS:
+                settings[k] = v
         self.data["settings"] = settings
+
+        games = {k: dict(sp.defaults) for k, sp in GAMES.items()}
+        for key, saved in (raw.get("games") or {}).items():
+            if key in games and isinstance(saved, dict):
+                for k, v in saved.items():
+                    if k in games[key]:
+                        games[key][k] = v
+        # 옛 설정 파일은 게임 설정이 공용과 한 덩어리였다 — 뿌요 쪽으로 옮긴다
+        if "games" not in raw and "puyo" in games:
+            for k in LEGACY_GAME_KEYS:
+                if k in old and k in games["puyo"]:
+                    games["puyo"][k] = old[k]
+        self.data["games"] = games
+
+        records = {k: {} for k in GAMES}
+        for key, saved in (raw.get("records") or {}).items():
+            if key in records and isinstance(saved, dict):
+                records[key] = {k: v for k, v in saved.items()}
+        if "records" not in raw and "puyo" in records:
+            for old_key, new_key in (("best", "best"), ("best_chain", "best_chain")):
+                if raw.get(old_key):
+                    records["puyo"][new_key] = int(raw[old_key])
+        self.data["records"] = records
+
+        picked = raw.get("game")
+        self.data["game"] = picked if picked in GAMES else default_game()
+
         # 저장된 키 중 지금도 존재하는 동작만 받아들인다 (버전이 올라가도 안전)
         keys = dict(DEFAULT_KEYS)
         for aid, seq in (raw.get("keys") or {}).items():
             if aid in DEFAULT_KEYS and isinstance(seq, str):
                 keys[aid] = seq
         self.data["keys"] = keys
-        self.data["best"] = int(raw.get("best") or 0)
-        self.data["best_chain"] = int(raw.get("best_chain") or 0)
 
     def save(self):
         """임시 파일에 쓰고 교체 — 도중에 죽어도 기존 설정이 깨지지 않는다."""
@@ -241,11 +340,47 @@ class Config:
 
     @property
     def s(self):
+        """공용 설정 (화면·은폐·창)."""
         return self.data["settings"]
 
     @property
     def keys(self):
         return self.data["keys"]
+
+    @property
+    def game(self):
+        return self.data["game"]
+
+    @property
+    def spec(self):
+        return GAMES[self.data["game"]]
+
+    @property
+    def g(self):
+        """지금 고른 게임의 전용 설정."""
+        return self.data["games"][self.data["game"]]
+
+    @property
+    def rec(self):
+        """지금 고른 게임의 기록."""
+        return self.data["records"].setdefault(self.data["game"], {})
+
+    def opt(self, key):
+        """규칙 객체가 쓰는 설정 읽기 — 게임 전용을 먼저 보고 없으면 공용."""
+        g = self.g
+        return g[key] if key in g else self.s[key]
+
+    def set_opt(self, key, value):
+        """opt() 와 같은 자리에 쓴다."""
+        g = self.g
+        if key in g:
+            g[key] = value
+        else:
+            self.s[key] = value
+
+    def set_game(self, key):
+        if key in GAMES:
+            self.data["game"] = key
 
 
 # ========================================================= 전역 핫키 수신기
@@ -965,8 +1100,8 @@ def paint_ghost(p, left, top, cell, v):
     p.restore()
 
 
-class BoardWidget(QWidget):
-    """필드. 배경 알파를 0 으로 내리면 뿌요만 공중에 떠 있는 모습이 된다."""
+class PuyoBoard(QWidget):
+    """뿌요 필드. 배경 알파를 0 으로 내리면 뿌요만 공중에 떠 있는 모습이 된다."""
 
     def __init__(self, win):
         super().__init__(win)
@@ -1107,8 +1242,8 @@ class BoardWidget(QWidget):
         p.drawPath(path)
 
 
-class NextWidget(QWidget):
-    """NEXT 두 조 + 들어올 방해뿌요 표시."""
+class PuyoNext(QWidget):
+    """뿌요 NEXT 두 조 + 들어올 방해뿌요 표시."""
 
     def __init__(self, win):
         super().__init__(win)
@@ -1170,6 +1305,84 @@ DLG_LINE = "#333a49"     # 테두리
 DLG_INK = "#e8ecf4"      # 글자
 DLG_DIM = "#aeb6c8"      # 흐린 글자
 DLG_SEL = "#3d63ff"      # 선택 표시
+
+
+def puyo_settings_tab(dlg):
+    """설정 창의 '게임' 탭 — 뿌요 전용."""
+    w = dlg.w
+    page = QWidget()
+    form = QFormLayout(page)
+
+    colors = QComboBox()
+    choices = list(range(3, len(PUYO_COLORS) + 1))
+    for n in choices:
+        colors.addItem("%d색" % n, n)
+    current = max(3, min(len(PUYO_COLORS), int(w.cfg.opt("num_colors"))))
+    colors.setCurrentIndex(choices.index(current))
+    colors.currentIndexChanged.connect(
+        lambda i: dlg._set_game("num_colors", colors.itemData(i)))
+    form.addRow("뿌요 색 수", colors)
+
+    mode = QComboBox()
+    mode.addItem("엔드리스 (혼자 연쇄 연습)", "endless")
+    mode.addItem("방해뿌요 (일정 간격으로 방해뿌요가 쏟아진다)", "garbage")
+    mode.setCurrentIndex(["endless", "garbage"].index(w.cfg.opt("mode")))
+    mode.currentIndexChanged.connect(
+        lambda i: dlg._set_game("mode", mode.itemData(i)))
+    form.addRow("모드", mode)
+
+    margin = QCheckBox("마진 타임 (시간이 지나면 상쇄가 어려워진다)")
+    margin.setChecked(bool(w.cfg.opt("margin_time")))
+    margin.toggled.connect(lambda on: dlg._set_game("margin_time", bool(on)))
+    form.addRow(margin)
+
+    note = QLabel(
+        "6×12 필드 + 숨은 13번째 줄, 3열이 막히면 게임 오버.\n"
+        "본가 점수식(연쇄·색·덩어리 보너스), 퀵턴·벽 밀기·바닥 밀기,\n"
+        "싹쓸이는 다음 공격에 얹히고, 방해뿌요 상쇄와 마진 타임을 따른다.")
+    note.setWordWrap(True)
+    form.addRow("규칙", note)
+    return page
+
+
+def puyo_stats(win, g, compact):
+    """사이드 패널 글과 상단바 글. (패널 HTML, 상단바 글) 을 돌려준다."""
+    mode = "방해뿌요" if win.cfg.opt("mode") == "garbage" else "엔드리스"
+    # 싹쓸이 보너스는 다음 공격에 나가므로 대기 중임을 계속 보여 준다
+    zen = ("<br><br><span style='color:#ffe066'>싹쓸이 대기<br>"
+           "+%d</span>" % ALL_CLEAR_BONUS) if g.zenkeshi else ""
+    info = "%s점 · %d연쇄" % (format(g.score, ","), g.chain)
+    if compact:
+        return ("<b>%s</b><br>연쇄 <b>%d</b><br>Lv <b>%d</b>%s"
+                % (format(g.score, ","), g.chain, g.level(), zen), info)
+    return ("점수<br><b>%s</b>"
+            "<br><br>연쇄 <b>%d</b>"
+            "<br>최고연쇄 <b>%d</b>"
+            "<br>레벨 <b>%d</b>"
+            "<br><br>최고점수<br><b>%s</b>"
+            "<br><br>%s<br>전송 <b>%d</b><br>예고 <b>%d</b>%s"
+            % (format(g.score, ","), g.chain, g.max_chain, g.level(),
+               format(int(win.cfg.rec.get("best", 0)), ","), mode, g.sent,
+               g.pending, zen), info)
+
+
+def puyo_records(g):
+    return {"best": g.score, "best_chain": g.max_chain}
+
+
+PUYO = register_game(GameSpec(
+    key="puyo",
+    label="뿌요뿌요",
+    defaults={"num_colors": 4, "mode": "endless", "margin_time": True},
+    engine=PuyoGame,
+    board=PuyoBoard,
+    side=PuyoNext,
+    stats=puyo_stats,
+    settings_tab=puyo_settings_tab,
+    actions={"left", "right", "soft", "rot_cw", "rot_cw2", "rot_ccw", "hard",
+             "g_left", "g_right", "g_soft", "g_rot", "g_hard"},
+    records=puyo_records,
+))
 
 
 def force_fusion_style():
@@ -1407,49 +1620,44 @@ class SettingsDialog(QDialog):
         return page
 
     # ------------------------------------------------------------- 게임 탭
+    # ------------------------------------------------------------- 게임 탭
     def _game_tab(self):
-        s = self.w.cfg.s
+        """게임 선택과 공용 항목을 얹고, 그 아래에 게임별 설정을 붙인다."""
         page = QWidget()
-        form = QFormLayout(page)
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(0, 0, 0, 0)
 
-        colors = QComboBox()
-        choices = list(range(3, len(PUYO_COLORS) + 1))
-        for n in choices:
-            colors.addItem("%d색" % n, n)
-        current = max(3, min(len(PUYO_COLORS), int(s["num_colors"])))
-        colors.setCurrentIndex(choices.index(current))
-        colors.currentIndexChanged.connect(
-            lambda i: self._set_game("num_colors", colors.itemData(i)))
-        form.addRow("뿌요 색 수", colors)
+        head = QWidget()
+        form = QFormLayout(head)
 
-        mode = QComboBox()
-        mode.addItem("엔드리스 (혼자 연쇄 연습)", "endless")
-        mode.addItem("방해뿌요 (일정 간격으로 방해뿌요가 쏟아진다)", "garbage")
-        mode.setCurrentIndex(["endless", "garbage"].index(s["mode"]))
-        mode.currentIndexChanged.connect(
-            lambda i: self._set_game("mode", mode.itemData(i)))
-        form.addRow("모드", mode)
-
-        margin = QCheckBox("마진 타임 (시간이 지나면 상쇄가 어려워진다)")
-        margin.setChecked(bool(s["margin_time"]))
-        margin.toggled.connect(lambda on: self._set_flag("margin_time", on))
-        form.addRow(margin)
+        picker = QComboBox()
+        keys = list(GAMES)
+        for k in keys:
+            picker.addItem(GAMES[k].label, k)
+        picker.setCurrentIndex(keys.index(self.w.cfg.game))
+        picker.setEnabled(len(keys) > 1)
+        picker.currentIndexChanged.connect(
+            lambda i: self._pick_game(picker.itemData(i)))
+        form.addRow("게임", picker)
 
         speed = QDoubleSpinBox()
         speed.setRange(0.3, 3.0)
         speed.setSingleStep(0.1)
-        speed.setValue(float(s["speed"]))
+        speed.setValue(float(self.w.cfg.s["speed"]))
         speed.setSuffix(" ×")
         speed.valueChanged.connect(lambda v: self._set_game("speed", v))
         form.addRow("낙하 속도", speed)
 
-        note = QLabel(
-            "6×12 필드 + 숨은 13번째 줄, 3열이 막히면 게임 오버.\n"
-            "본가 점수식(연쇄·색·덩어리 보너스), 퀵턴·벽 밀기·바닥 밀기,\n"
-            "전체 지우기 보너스, 방해뿌요 상쇄와 마진 타임을 따른다.")
-        note.setWordWrap(True)
-        form.addRow("규칙", note)
+        outer.addWidget(head)
+        outer.addWidget(self.w.cfg.spec.settings_tab(self), 1)
         return page
+
+    def _pick_game(self, key):
+        if key == self.w.cfg.game:
+            return
+        self.w.switch_game(key)
+        # 아래에 붙인 게임별 설정이 이전 게임 것이라 그대로 두면 헷갈린다
+        self.accept()
 
     # ----------------------------------------------------------- 단축키 탭
     def _keys_tab(self):
@@ -1463,6 +1671,8 @@ class SettingsDialog(QDialog):
 
         form.addRow(QLabel("<b>앱 단축키</b> (창이 활성일 때)"))
         for action_id, label, default in LOCAL_ACTIONS:
+            if not self.w.action_available(action_id):
+                continue          # 지금 게임에 없는 조작은 보여 주지 않는다
             row = ShortcutRow(action_id, default,
                               self.w.cfg.keys.get(action_id, default))
             row.changed.connect(self._key_changed)
@@ -1470,6 +1680,8 @@ class SettingsDialog(QDialog):
 
         form.addRow(QLabel("<b>전역 핫키</b> (다른 창에 있어도 동작 · 수식키 필수)"))
         for action_id, label, default in GLOBAL_ACTIONS:
+            if not self.w.action_available(action_id):
+                continue
             row = ShortcutRow(action_id, default,
                               self.w.cfg.keys.get(action_id, default))
             row.changed.connect(self._key_changed)
@@ -1529,7 +1741,7 @@ class SettingsDialog(QDialog):
         self.w.schedule_save()
 
     def _set_game(self, key, value):
-        self.w.cfg.s[key] = value
+        self.w.cfg.set_opt(key, value)
         self.w.schedule_save()
         if key == "num_colors":
             # 색 세트는 한 판 동안 고정이다. 아직 아무것도 놓지 않았으면 바로
@@ -1571,7 +1783,8 @@ class PuyoWindow(QWidget):
         self._hotkey_failures = []
         self._flash_text = ""
 
-        self.game = PuyoGame(lambda k: self.cfg.s[k])
+        self.spec = cfg.spec
+        self.game = self.spec.engine(cfg.opt)
 
         self.setObjectName("puyoRoot")
         self.setWindowTitle(cfg.s["disguise_title"])
@@ -1613,8 +1826,8 @@ class PuyoWindow(QWidget):
             bar.addWidget(self.buttons[kind])
 
         # ---------------------------------------------------- 필드 / 패널
-        self.board = BoardWidget(self)
-        self.next_view = NextWidget(self)
+        self.board = self.spec.board(self)
+        self.next_view = self.spec.side(self) if self.spec.side else None
         self.stat_label = QLabel()
         self.stat_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.stat_label.setMouseTracking(True)
@@ -1625,7 +1838,13 @@ class PuyoWindow(QWidget):
         self.stat_label.setMinimumWidth(1)
         # 창 크기는 resync_size() 가 보드 기준으로 정한다. 글자가 몇 줄로
         # 접히든 창을 늘리지 않도록 크기 요구를 아예 내놓지 않게 한다.
-        self.stat_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        stat_policy = QSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        # 줄바꿈 라벨은 '이 폭이면 이만큼 높아야 한다'를 레이아웃에 요구한다.
+        # 글자를 새로 넣을 때마다 그 요구가 지연 처리되어, 게임을 갈아끼운 뒤
+        # 이미 맞춰 놓은 창 크기를 옛 값으로 되돌린다. 높이는 resync_size 가
+        # 보드 기준으로 못박으므로, 라벨은 레이아웃에 아무 요구도 하지 않게 한다.
+        stat_policy.setHeightForWidth(False)
+        self.stat_label.setSizePolicy(stat_policy)
         self.stat_label.setMinimumSize(1, 0)
 
         self.panel = QWidget(self)
@@ -1634,12 +1853,14 @@ class PuyoWindow(QWidget):
         panel_lay.setContentsMargins(6, 2, 4, 2)
         panel_lay.setSpacing(6)
         self.panel_lay = panel_lay
-        panel_lay.addWidget(self.next_view)
+        if self.next_view is not None:
+            panel_lay.addWidget(self.next_view)
         panel_lay.addWidget(self.stat_label, 1)
 
         mid = QHBoxLayout()
         mid.setContentsMargins(0, 0, 0, 0)
         mid.setSpacing(self.MID_GAP)
+        self.mid = mid
         mid.addWidget(self.board)
         mid.addWidget(self.panel)
 
@@ -1673,23 +1894,44 @@ class PuyoWindow(QWidget):
         self.apply_window_mode()
         self.resync_size()
         # 창 크기가 정해진 뒤에 위치를 잡는다 — 화면 밖 좌표는 보정된다
-        pos = cfg.s.get("pos") or DEFAULTS["pos"]
+        pos = cfg.s.get("pos") or COMMON_DEFAULTS["pos"]
         self.move(self.sane_pos(pos[0], pos[1]))
 
         self.hotkey_pressed.connect(self.on_global_hotkey)
         self.tick.start()
 
+    # 게임 조작 동작 — 규칙 객체에 무엇을 시킬지만 적는다. 어느 게임이든
+    # 이 이름들을 제공하면 그대로 붙는다. 게임이 실제로 쓰는 것은
+    # GameSpec.actions 로 골라진다.
+    GAME_VERBS = {
+        "left": lambda g: g.move(-1),
+        "right": lambda g: g.move(1),
+        "soft": lambda g: g.soft_drop(),
+        "rot_cw": lambda g: g.rotate(1),
+        "rot_cw2": lambda g: g.rotate(1),
+        "rot_ccw": lambda g: g.rotate(-1),
+        "hard": lambda g: g.hard_drop(),
+        "hold": lambda g: g.hold(),
+        "rot_180": lambda g: g.rotate_180(),
+    }
+    # 전역 핫키 쪽 이름 -> 같은 일을 하는 앱 단축키 이름
+    GLOBAL_VERB_ALIAS = {"g_left": "left", "g_right": "right", "g_soft": "soft",
+                         "g_rot": "rot_cw", "g_hard": "hard", "g_hold": "hold"}
+
+    def action_available(self, action_id):
+        """지금 고른 게임에서 쓰이는 동작인가.
+
+        조작 동작(이동·회전·홀드 등)은 게임마다 다르다. 창 조작(숨기기·투명도)
+        은 언제나 쓰인다. 설정 창에서 쓰지도 않는 키를 보여 주지 않으려고 쓴다.
+        """
+        if action_id in self.GAME_VERBS or action_id in self.GLOBAL_VERB_ALIAS:
+            return action_id in self.spec.actions
+        return True
+
     # ------------------------------------------------------------- 단축키
     def _handlers(self):
         """동작 id -> 실행할 함수. 앱 단축키와 전역 핫키가 이 표를 함께 쓴다."""
-        return {
-            "left": lambda: self.game.move(-1),
-            "right": lambda: self.game.move(1),
-            "soft": self.game.soft_drop,
-            "rot_cw": lambda: self.game.rotate(1),
-            "rot_cw2": lambda: self.game.rotate(1),
-            "rot_ccw": lambda: self.game.rotate(-1),
-            "hard": self.game.hard_drop,
+        table = {
             "pause": self.toggle_pause,
             "new_game": self.new_game,
             "restart": self.new_game,
@@ -1709,13 +1951,15 @@ class PuyoWindow(QWidget):
             "g_restart": self.new_game,
             "g_bg": self.toggle_bg,
             "g_pause": self.toggle_pause,
-            "g_left": lambda: self.game.move(-1),
-            "g_right": lambda: self.game.move(1),
-            "g_soft": self.game.soft_drop,
-            "g_rot": lambda: self.game.rotate(1),
-            "g_hard": self.game.hard_drop,
             "g_quit": self.quit_app,
         }
+        # 지금 게임이 쓰는 조작만 붙인다
+        for action_id in self.spec.actions:
+            verb = self.GLOBAL_VERB_ALIAS.get(action_id, action_id)
+            fn = self.GAME_VERBS.get(verb)
+            if fn:
+                table[action_id] = (lambda f=fn: f(self.game))
+        return table
 
     # 일시정지 중에도 받아야 하는 동작 — 나머지 조작키는 막는다
     ALWAYS_ON = {"pause", "new_game", "restart", "hide", "settings", "menu",
@@ -1756,7 +2000,8 @@ class PuyoWindow(QWidget):
         if fn:
             fn()
             self.board.update()
-            self.next_view.update()
+            if self.next_view is not None:
+                self.next_view.update()
 
     def apply_global_hotkeys(self):
         """전역 핫키를 설정대로 다시 등록하고, 실패한 것을 알려 준다."""
@@ -1846,7 +2091,8 @@ class PuyoWindow(QWidget):
             self.tray_menu.setStyleSheet(menu_stylesheet(s["bg_color"]))
             self.tray.setIcon(self._make_icon())
         self.board.update()
-        self.next_view.update()
+        if self.next_view is not None:
+            self.next_view.update()
         self.update()
 
     def resync_size(self):
@@ -1861,13 +2107,20 @@ class PuyoWindow(QWidget):
         self.topbar.setVisible(bool(s["show_topbar"]))
         self.panel.setVisible(bool(s["show_panel"]))
         self.board.resync()
-        self.next_view.resync()
-        panel_w = max(74, self.next_view.width() + 16)
-        self.panel.setFixedWidth(panel_w)
+        side_h = 0
+        side_w = 0
+        if self.next_view is not None:
+            self.next_view.resync()
+            side_w = self.next_view.width()
+            side_h = self.next_view.height() + self.panel_lay.spacing()
+        panel_w = max(74, side_w + 16)
+        # 폭만 정해 두면 높이는 레이아웃이 정하는데, 그때 심어 놓은 최소 높이가
+        # 게임을 갈아끼운 뒤에도 남아 창이 옛 크기 아래로 줄지 않는다.
+        # 패널은 언제나 보드와 같은 높이이므로 둘 다 못박는다.
+        self.panel.setFixedSize(panel_w, self.board.height())
         self.stat_label.setFixedWidth(panel_w - 12)
         pm = self.panel_lay.contentsMargins()
-        stat_h = (self.board.height() - pm.top() - pm.bottom()
-                  - self.next_view.height() - self.panel_lay.spacing())
+        stat_h = self.board.height() - pm.top() - pm.bottom() - side_h
         self.stat_label.setFixedHeight(max(0, stat_h))
 
         # isVisible() 이 아니라 설정값으로 판단한다 — 창이 아직 화면에 올라오기
@@ -1883,6 +2136,15 @@ class PuyoWindow(QWidget):
         height = m.top() + self.board.height() + m.bottom()
         if show_topbar:
             height += self.topbar.height() + gap
+        # 레이아웃은 최소 크기를 캐시해 둔다. 게임을 갈아끼워 자식이 작아졌을
+        # 때 그 캐시가 남아 있으면, setFixedSize 로 줄여 놓아도 activate() 가
+        # 옛 최소 크기로 창을 도로 늘린다. 캐시를 버리고 한계를 푼 뒤 다시 잰다.
+        # 레이아웃은 최소 크기를 캐시해 둔다. 게임을 갈아끼워 자식이 작아졌을
+        # 때 그 캐시가 남아 있으면, setFixedSize 로 줄여 놓아도 activate() 가
+        # 옛 최소 크기로 창을 도로 늘린다. invalidate() 는 그 레이아웃만 비우고
+        # 안에 든 레이아웃은 건드리지 않으므로, 중첩된 것까지 모두 비운다.
+        for nested in (self.panel_lay, self.mid, lay):
+            nested.invalidate()
         self.setFixedSize(width, height)
         lay.activate()
         self.apply_style()
@@ -1927,7 +2189,7 @@ class PuyoWindow(QWidget):
             s["bg_alpha"] = 0
             self.flash("배경 지우기 ON")
         else:
-            s["bg_alpha"] = getattr(self, "_bg_backup", DEFAULTS["bg_alpha"])
+            s["bg_alpha"] = getattr(self, "_bg_backup", COMMON_DEFAULTS["bg_alpha"])
             self.flash("배경 지우기 OFF")
         self.apply_style()
         self.schedule_save()
@@ -2034,15 +2296,46 @@ class PuyoWindow(QWidget):
                 self._record_best()
         if self.isVisible():
             self.board.update()
-            self.next_view.update()
+            if self.next_view is not None:
+                self.next_view.update()
             self._update_stats()
 
     def _record_best(self):
-        best = max(int(self.cfg.data["best"]), self.game.score)
-        best_chain = max(int(self.cfg.data["best_chain"]), self.game.max_chain)
-        self.cfg.data["best"] = best
-        self.cfg.data["best_chain"] = best_chain
+        """이 게임의 기록만 큰 값으로 갱신한다."""
+        rec = self.cfg.rec
+        for name, value in self.spec.records(self.game).items():
+            rec[name] = max(int(rec.get(name, 0)), int(value))
         self.save_state()
+
+    def switch_game(self, key):
+        """게임을 갈아끼운다 — 창·은폐 계층은 그대로 두고 규칙과 화면만 바꾼다."""
+        if key not in GAMES or key == self.cfg.game:
+            return
+        if self.game.score:
+            self._record_best()
+        self.cfg.set_game(key)
+        self.spec = self.cfg.spec
+        self.game = self.spec.engine(self.cfg.opt)
+
+        self.mid.removeWidget(self.board)
+        self.board.setParent(None)
+        self.board.deleteLater()
+        self.board = self.spec.board(self)
+        self.mid.insertWidget(0, self.board)
+
+        if self.next_view is not None:
+            self.panel_lay.removeWidget(self.next_view)
+            self.next_view.setParent(None)
+            self.next_view.deleteLater()
+        self.next_view = self.spec.side(self) if self.spec.side else None
+        if self.next_view is not None:
+            self.panel_lay.insertWidget(0, self.next_view)
+
+        self.paused = False
+        self.rebuild_keymap()
+        self.resync_size()
+        self.flash("%s 시작" % self.spec.label)
+        self.schedule_save()
 
     def new_game(self):
         """빠른 재시작 — 확인 절차 없이 즉시 새 판. 일시정지·게임 오버 중에도 된다."""
@@ -2058,29 +2351,13 @@ class PuyoWindow(QWidget):
         g = self.game
         if not self.cfg.s["show_panel"] and not self.cfg.s["show_topbar"]:
             return
-        mode = "방해뿌요" if self.cfg.s["mode"] == "garbage" else "엔드리스"
-        # 싹쓸이 보너스는 다음 공격에 나가므로 대기 중임을 계속 보여 준다
-        zen = ("<br><br><span style='color:#ffe066'>싹쓸이 대기<br>"
-               "+%d</span>" % ALL_CLEAR_BONUS) if g.zenkeshi else ""
-        if self.stat_label.height() < 200:
-            # 셀을 작게 줄이면 패널도 얇아진다 — 꼭 필요한 것만 남긴다
-            self.stat_label.setText(
-                "<b>%s</b><br>연쇄 <b>%d</b><br>Lv <b>%d</b>%s"
-                % (format(g.score, ","), g.chain, g.level(), zen))
-        else:
-            self.stat_label.setText(
-                "점수<br><b>%s</b>"
-                "<br><br>연쇄 <b>%d</b>"
-                "<br>최고연쇄 <b>%d</b>"
-                "<br>레벨 <b>%d</b>"
-                "<br><br>최고점수<br><b>%s</b>"
-                "<br><br>%s<br>전송 <b>%d</b><br>예고 <b>%d</b>%s"
-                % (format(g.score, ","), g.chain, g.max_chain, g.level(),
-                   format(int(self.cfg.data["best"]), ","), mode, g.sent,
-                   g.pending, zen))
+        # 셀을 작게 줄이면 패널도 얇아진다 — 그때는 간략형을 쓴다
+        compact = self.stat_label.height() < 200
+        panel_html, info = self.spec.stats(self, g, compact)
+        self.stat_label.setText(panel_html)
         if self._flash_text:
             return
-        self._set_info("%s점 · %d연쇄" % (format(g.score, ","), g.chain))
+        self._set_info(info)
 
     def _set_info(self, text):
         """상단바가 좁아도 창이 늘어나지 않게 글자를 잘라서 넣는다."""
@@ -2111,6 +2388,14 @@ class PuyoWindow(QWidget):
                        self.new_game)
         menu.addAction(("재개" if self.paused else "일시정지")
                        + "\t%s" % self.key_hint("pause"), self.toggle_pause)
+        if len(GAMES) > 1:
+            sub = menu.addMenu("게임")
+            for key, spec in GAMES.items():
+                act = sub.addAction(spec.label,
+                                    lambda k=key: self.switch_game(k))
+                act.setCheckable(True)
+                act.setChecked(key == self.cfg.game)
+            sub.setStyleSheet(menu_stylesheet(s["bg_color"]))
         menu.addSeparator()
 
         act_bg = menu.addAction("배경 지우기\t%s" % self.key_hint("toggle_bg"),

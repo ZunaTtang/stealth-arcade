@@ -145,8 +145,19 @@ Ctrl+J        상단바
 
 ## 4. 설정 저장
 
-`%APPDATA%\StealthPuyo\config.json` — 화면·게임 설정, 단축키, 최고 점수와
-최고 연쇄, 창 위치. 임시 파일에 쓰고 교체하므로 도중에 죽어도 깨지지 않는다.
+`%APPDATA%\StealthPuyo\config.json` — 임시 파일에 쓰고 교체하므로 도중에 죽어도
+깨지지 않는다. 게임이 여럿이어도 섞이지 않도록 이렇게 나눠 담는다.
+
+```
+settings   화면·은폐·창 위치·낙하 속도  — 게임이 바뀌어도 그대로
+games      { 게임 이름: 그 게임 전용 설정 }
+records    { 게임 이름: { 기록 이름: 값 } }
+game       지금 고른 게임
+keys       단축키 (게임과 무관하게 하나로 관리)
+```
+
+예전 형식(모든 값이 한 덩어리였던 파일)은 처음 읽을 때 알아서 옮겨 담는다.
+투명도·창 위치·단축키는 그대로 남고, 뿌요 설정과 최고 기록은 뿌요 칸으로 간다.
 
 같은 앱을 두 번 실행하면 새 창이 아니라 이미 떠 있는 창이 나온다(단일 인스턴스).
 
@@ -179,17 +190,47 @@ spec 을 쓰도록 해 두었다.
 
 ## 6. 코드 구조
 
+창·은폐 계층과 게임을 갈라 두었다. 아래 표에서 위쪽은 게임이 무엇이든 그대로고,
+아래쪽이 게임마다 갈리는 부분이다.
+
 | 위치 | 내용 |
 |---|---|
 | `seq_to_win`, `HotkeyFilter`, `HotkeyManager` | 전역 핫키 등록/수신 |
-| `Config` | 설정 저장/복원 |
-| `PuyoGame` | 화면과 무관한 순수 게임 규칙 (상태 기계) |
-| `BoardWidget`, `NextWidget` | 필드와 NEXT 그리기 |
+| `Config` | 공용·게임별 설정 저장/복원 |
+| `GameSpec`, `register_game`, `GAMES` | 게임 등록 (아래 참고) |
+| `PuyoWindow` | 창, 은폐 동작, 입력, 트레이, 게임 갈아끼우기 |
 | `SettingsDialog` | 화면 / 게임 / 단축키 탭 |
 | `force_fusion_style`, `dialog_palette`, `style_dialog` | 설정 창 색 (아래 참고) |
-| `PuyoWindow` | 창, 은폐 동작, 입력, 트레이 |
+| `PuyoGame` | 뿌요 규칙 (Qt에 의존하지 않는 순수 상태 기계) |
+| `PuyoBoard`, `PuyoNext` | 뿌요 필드와 NEXT 그리기 |
+| `puyo_stats`, `puyo_settings_tab`, `puyo_records` | 뿌요 패널 글·설정 탭·기록 |
 
-`PuyoGame` 은 Qt에 의존하지 않아 규칙만 따로 시험할 수 있다.
+### 게임 붙이기
+
+새 게임은 `GameSpec` 하나를 만들어 `register_game()` 에 넘기면 된다. `PuyoWindow`
+와 `Config` 는 고칠 일이 없다.
+
+```python
+register_game(GameSpec(
+    key="...", label="...",
+    defaults={...},            # 이 게임 전용 설정 (공용과 이름이 겹치면 거부된다)
+    engine=...,                # reset / update(dt) / move / rotate /
+                               # soft_drop / hard_drop, score·over·state
+    board=..., side=...,       # 필드 위젯, NEXT 같은 옆 위젯(없으면 None)
+    stats=..., settings_tab=...,
+    actions={...},             # 이 게임이 쓰는 조작 id — 안 쓰는 키는 설정 창에서 숨는다
+    records=...,               # {기록 이름: 값}
+))
+```
+
+창이 게임 객체에 요구하는 이름은 서른 개 남짓이고, 창 크기·드래그·숨기기·투명도·
+트레이·단축키는 전부 공용 계층이 처리한다. 게임이 둘 이상이면 설정 창의 게임 탭과
+우클릭 메뉴에 게임 고르기가 나타나고, `PuyoWindow.switch_game()` 이 규칙·필드·
+옆 위젯·조작표를 한꺼번에 갈아끼운다.
+
+창 크기는 보드에서 곧바로 계산하고 패널 높이도 보드에 맞춰 못박는다. 레이아웃이
+관리 위젯에 심어 둔 최소 크기가 남아 있으면, 판이 작은 게임으로 바꿔도 창이 옛
+크기 아래로 줄지 않기 때문이다.
 
 설정 창 색은 두 가지를 함께 해야 한다. 윈도우 기본 스타일은 스타일시트를 준
 위젯과 그렇지 않은 위젯을 섞어 그려서 버튼 같은 일부만 시스템 흰색으로 남고,
