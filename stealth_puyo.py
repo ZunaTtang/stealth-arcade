@@ -1532,6 +1532,7 @@ class TetrisGame:
         self.sent = 0
         self.leftover = 0.0
         self.clear_rows = []
+        self.lowest_y = 0              # 이 조각이 여태 닿은 가장 낮은 줄
         self.last_action = ""          # 화면에 띄울 마지막 성과
         self.msg = ""
         self.msg_t = 0.0
@@ -1587,6 +1588,7 @@ class TetrisGame:
         self.fall = 0.0
         self.ground_ms = 0.0
         self.lock_resets = 0
+        self.lowest_y = y
         self.hold_used = False
         self._last_was_rotate = False
         self.pieces += 1
@@ -1601,6 +1603,18 @@ class TetrisGame:
         """이동·회전에 성공하면 굳기를 미뤄 준다 (횟수 제한)."""
         if self.grounded() and self.lock_resets < TET_LOCK_RESETS:
             self.lock_resets += 1
+            self.ground_ms = 0.0
+
+    def _descended(self):
+        """조각이 여태까지보다 더 아래로 내려갔을 때.
+
+        본가 규칙 — 더 낮은 줄에 닿으면 굳기 지연과 미루기 횟수가 모두
+        처음으로 돌아간다. 그래서 아래로 내려가는 한 계속 조작할 수 있고,
+        같은 높이에서만 열다섯 번까지 미룰 수 있다.
+        """
+        if self.cur and self.cur["y"] > self.lowest_y:
+            self.lowest_y = self.cur["y"]
+            self.lock_resets = 0
             self.ground_ms = 0.0
 
     def move(self, dx):
@@ -1645,6 +1659,12 @@ class TetrisGame:
         return self._try_rotate((self.cur["rot"] + 2) % 4, _SRS_180)
 
     def soft_drop(self):
+        """한 칸 내린다. 바닥에 닿아도 굳히지 않는다.
+
+        본가는 소프트 드롭 중에도 굳기 지연이 그대로 살아 있어, 바닥에 닿은
+        뒤에도 좌우로 밀거나 돌려 자리를 잡을 수 있다. 즉시 굳는 것은 하드
+        드롭뿐이다.
+        """
         if self.state != "play" or not self.cur:
             return
         c = self.cur
@@ -1653,8 +1673,7 @@ class TetrisGame:
             self.score += 1                    # 소프트 드롭 1칸 1점
             self.fall = 0.0
             self._last_was_rotate = False
-        else:
-            self.lock()
+            self._descended()
 
     def hard_drop(self):
         if self.state != "play" or not self.cur:
@@ -1875,6 +1894,7 @@ class TetrisGame:
                 if c and self.fits(c["x"], c["y"] + 1, c["rot"], c["kind"]):
                     c["y"] += 1
                     self._last_was_rotate = False
+                    self._descended()
                 else:
                     self.fall = 0.0
                     break
