@@ -4580,6 +4580,11 @@ class MineBoard(QWidget):
         super().__init__(win)
         self.win = win
         self._chording = False
+        # 오른쪽 클릭은 깃발이다. 창이 오른쪽 클릭에 메뉴를 달아 두었으므로,
+        # 판에서는 메뉴 요청 자체가 생기지 않게 막는다. PreventContextMenu 는
+        # 부모로 넘기지도 않는다 — Ignored 로 두면 창까지 올라가 메뉴가 뜬다.
+        # 메뉴는 상단바·점수 칸에서 오른쪽 클릭하거나 Ctrl+R, 트레이로 연다.
+        self.setContextMenuPolicy(Qt.PreventContextMenu)
         self.resync()
 
     def cell(self):
