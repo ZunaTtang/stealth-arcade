@@ -191,6 +191,256 @@ GLOBAL_ACTIONS = [
 DEFAULT_KEYS = {aid: key for aid, _label, key in LOCAL_ACTIONS + GLOBAL_ACTIONS}
 ACTION_LABELS = {aid: label for aid, label, _key in LOCAL_ACTIONS + GLOBAL_ACTIONS}
 
+# ================================================================= 표시 언어
+# 화면에 보이는 글만 바꾼다. 설정 파일에 담기는 값(게임 이름, 난이도 key 등)은
+# 그대로 두므로, 언어를 오가도 설정과 기록이 섞이지 않는다.
+LANG = "ko"
+LANG_NAMES = [("ko", "한국어"), ("en", "English")]
+_TR_MISS = set()          # 번역이 없어 그냥 내보낸 글 (점검용)
+
+TR = {
+    # ---- 공용 ----
+    "설정": "Settings",
+    "화면": "Screen",
+    "게임": "Game",
+    "단축키": "Keys",
+    "규칙": "Rules",
+    "모드": "Mode",
+    "난이도": "Difficulty",
+    "없음": "none",
+    "(없음)": "(none)",
+    "해제": "Clear",
+    "기본": "Reset",
+    "이 동작에 키를 지정하지 않음": "Leave this action unbound",
+    "기본값 %s 으로": "Back to default %s",
+    "모든 키를 기본값으로": "Reset all keys to defaults",
+    "<b>앱 단축키</b> (창이 활성일 때)": "<b>App keys</b> (when the window is active)",
+    "<b>전역 핫키</b> (다른 창에 있어도 동작 · 수식키 필수)":
+        "<b>Global hotkeys</b> (work from any window · modifier required)",
+    # ---- 화면 탭 ----
+    "셀 크기": "Cell size",
+    "배경색": "Background colour",
+    "배경 진하기 (0 = 배경 지우기)": "Background opacity (0 = erase background)",
+    "격자선": "Grid lines",
+    "창 투명도": "Window opacity",
+    "항상 위": "Always on top",
+    "테두리 없음": "Frameless",
+    "상단바 표시": "Show top bar",
+    "사이드 패널 표시": "Show side panel",
+    "착지 위치 표시": "Show landing ghost",
+    "숨기기": "Hide",
+    "재시작": "Restart",
+    "상단바 아이콘": "Top bar icons",
+    "숨은 창 (작업 표시줄·Alt+Tab 에서 제외)":
+        "Hidden window (kept out of the taskbar and Alt+Tab)",
+    "위장 창 (다른 제목으로 표시)": "Disguised window (shows another title)",
+    "보통 창": "Normal window",
+    "창 모드": "Window mode",
+    "위장 제목": "Disguise title",
+    "포커스를 잃으면 자동으로 숨기기": "Hide automatically when focus is lost",
+    "숨길 때 자동 일시정지": "Pause automatically while hidden",
+    "낙하 속도": "Fall speed",
+    "표시 언어": "Language",
+    '6×12 필드 + 숨은 13번째 줄, 3열이 막히면 게임 오버.\n본가 점수식(연쇄·색·덩어리 보너스), 퀵턴·벽 밀기·바닥 밀기,\n싹쓸이는 다음 공격에 얹히고, 방해뿌요 상쇄와 마진 타임을 따른다.':
+        '6x12 field plus a hidden 13th row; game over when column 3 is blocked.\nArcade scoring (chain / colour / group bonuses), quick turn, wall and\nfloor kicks. An all clear pays out on your next attack, and garbage\noffsetting and margin time follow the arcade rules.',
+    '10×20 필드. SRS 회전과 벽 밀기 표(I 는 따로), 7-bag,\n굳기 지연 0.5초에 이동·회전 15회까지 미루기,\nT-스핀 3코너 판정, 백투백, 콤보, 퍼펙트 클리어,\n가이드라인 점수와 중력 곡선, 뿌요테트 공격표를 따른다.':
+        '10x20 field. SRS rotation with the official kick tables (I has its own),\n7-bag, 0.5s lock delay with up to 15 move resets, 3-corner T-Spin\ndetection, back-to-back, combos, perfect clear, guideline scoring and\ngravity curve, and the Puyo Puyo Tetris attack table.',
+    'sudoku.com 방식이다. 실수 3번이면 끝, 메모(연필)·힌트·되돌리기가 있고,\n숫자를 넣으면 같은 줄·칸·박스의 그 숫자 메모가 자동으로 지워진다.\n고른 칸의 줄·칸·박스와 같은 숫자를 함께 밝게 보여 준다.\n난이도는 주어진 숫자 개수와 풀이에 필요한 기법으로 가른다.\n난이도를 바꾸면 다음 문제부터 적용된다 (F2 / R 로 새 문제).':
+        "Follows sudoku.com. Three mistakes ends the game; notes, hints and undo\nare available. Placing a number clears that note from its row, column and\nbox. The selected cell's row, column and box are highlighted along with\nevery matching number. Difficulty comes from the number of givens and the\ntechniques a solver needs. A new difficulty applies to the next puzzle\n(F2 / R for a new one).",
+    # ---- 상단바 · 메뉴 · 안내 ----
+    "Esc 숨기기 · Ctrl+Alt+Z 복귀": "Esc to hide · Ctrl+Alt+Z to bring back",
+    "새 게임 (F2 / R)": "New game (F2 / R)",
+    "설정 (F1)": "Settings (F1)",
+    "숨기기 (Esc / Ctrl+Alt+Z)": "Hide (Esc / Ctrl+Alt+Z)",
+    "사이드 패널": "Side panel",
+    "상단바": "Top bar",
+    "전역 키 등록 실패: ": "Could not register global keys: ",
+    "  (등록 실패)": "  (not registered)",
+    "보이기 / 숨기기": "Show / hide",
+    "새 게임 / 재시작": "New game / restart",
+    "설정…": "Settings…",
+    "종료": "Quit",
+    "투명도 %d%%": "Opacity %d%%",
+    "셀 %dpx": "Cell %dpx",
+    "배경 지우기 ON": "Background erased",
+    "배경 지우기 OFF": "Background back",
+    "항상 위 ": "Always on top ",
+    "%s 로 재개": "%s to resume",
+    "재개": "Resumed",
+    "일시정지": "Paused",
+    "%s 시작": "%s started",
+    "새 게임": "New game",
+    "새 게임\t%s / %s": "New game\t%s / %s",
+    "배경 지우기\t%s": "Erase background\t%s",
+    "항상 위\t%s": "Always on top\t%s",
+    "사이드 패널\t%s": "Side panel\t%s",
+    "상단바\t%s": "Top bar\t%s",
+    "설정…\t%s": "Settings…\t%s",
+    "숨기기\t%s / %s": "Hide\t%s / %s",
+    "종료\t%s": "Quit\t%s",
+    " 로 재개": " to resume",
+    "%s / %s 다시 시작": "%s / %s to restart",
+    "%s점": "%s pts",
+    "색 수는 다음 게임부터 적용됩니다": "Colour count applies from the next game",
+    "단축키를 기본값으로 되돌렸습니다 — 설정을 다시 열면 반영됩니다":
+        "Keys reset to defaults — reopen settings to see them",
+    "표시 언어를 바꿨습니다": "Language changed",
+    # ---- 게임 이름 ----
+    "뿌요뿌요": "Puyo Puyo",
+    "테트리스": "Tetris",
+    "스도쿠": "Sudoku",
+    # ---- 뿌요 ----
+    "%d 연쇄!": "%d chain!",
+    "싹쓸이 보너스! +%d, 방해뿌요 +%d": "All clear bonus! +%d, +%d garbage",
+    "전체 지우기! 다음 공격에 보너스": "All clear! Bonus on your next attack",
+    "방해뿌요 %d개": "%d garbage puyo",
+    "뿌요 색 수": "Puyo colours",
+    "%d색": "%d colours",
+    "엔드리스 (혼자 연쇄 연습)": "Endless (chain practice)",
+    "방해뿌요 (일정 간격으로 방해뿌요가 쏟아진다)":
+        "Garbage (garbage puyo rain in at intervals)",
+    "마진 타임 (시간이 지나면 상쇄가 어려워진다)":
+        "Margin time (offsetting gets harder as time passes)",
+    "방해뿌요": "Garbage",
+    "엔드리스": "Endless",
+    "예고 %d": "Incoming %d",
+    "<br><br><span style='color:#ffe066'>싹쓸이 대기<br>+%d</span>":
+        "<br><br><span style='color:#ffe066'>All clear ready<br>+%d</span>",
+    "%s점 · %d연쇄": "%s pts · %d chain",
+    "<b>%s</b><br>연쇄 <b>%d</b><br>Lv <b>%d</b>%s":
+        "<b>%s</b><br>Chain <b>%d</b><br>Lv <b>%d</b>%s",
+    "점수<br><b>%s</b><br><br>연쇄 <b>%d</b><br>최고연쇄 <b>%d</b><br>레벨 <b>%d</b>"
+    "<br><br>최고점수<br><b>%s</b><br><br>%s<br>전송 <b>%d</b><br>예고 <b>%d</b>%s":
+        "Score<br><b>%s</b><br><br>Chain <b>%d</b><br>Best chain <b>%d</b>"
+        "<br>Level <b>%d</b><br><br>Best score<br><b>%s</b><br><br>%s"
+        "<br>Sent <b>%d</b><br>Incoming <b>%d</b>%s",
+    # ---- 테트리스 ----
+    "홀드": "Hold",
+    "T-스핀 미니": "T-Spin Mini",
+    "T-스핀": "T-Spin",
+    "T-스핀 미니 ": "T-Spin Mini ",
+    "T-스핀 ": "T-Spin ",
+    "싱글": "Single",
+    "더블": "Double",
+    "트리플": "Triple",
+    " %d콤보": " %d combo",
+    "퍼펙트 클리어": "Perfect Clear",
+    "방해줄 %d줄": "%d garbage lines",
+    "시작 레벨": "Start level",
+    "엔드리스 (혼자 쌓기 연습)": "Endless (stacking practice)",
+    "방해줄 (일정 간격으로 방해줄이 올라온다)":
+        "Garbage (garbage lines rise at intervals)",
+    "홀드 사용 (조각마다 한 번)": "Hold enabled (once per piece)",
+    "방해줄": "Garbage",
+    "%s점 · %d줄": "%s pts · %d lines",
+    "<b>%s</b><br>줄 <b>%d</b><br>Lv <b>%d</b>%s":
+        "<b>%s</b><br>Lines <b>%d</b><br>Lv <b>%d</b>%s",
+    "<br>B2B <b>ON</b>": "<br>B2B <b>ON</b>",
+    "<br>콤보 <b>%d</b>": "<br>Combo <b>%d</b>",
+    "점수<br><b>%s</b><br><br>줄 <b>%d</b><br>레벨 <b>%d</b><br>테트리스 <b>%d</b>"
+    "<br>T-스핀 <b>%d</b>%s%s<br><br>최고점수<br><b>%s</b><br><br>%s"
+    "<br>전송 <b>%d</b><br>예고 <b>%d</b>%s":
+        "Score<br><b>%s</b><br><br>Lines <b>%d</b><br>Level <b>%d</b>"
+        "<br>Tetrises <b>%d</b><br>T-Spins <b>%d</b>%s%s<br><br>Best score"
+        "<br><b>%s</b><br><br>%s<br>Sent <b>%d</b><br>Incoming <b>%d</b>%s",
+    # ---- 스도쿠 ----
+    "완성!": "Solved!",
+    "%s · %s점": "%s · %s pts",
+    "실수 %d번": "%d mistakes",
+    "%s / %s 새 문제": "%s / %s for a new puzzle",
+    "메모": "Notes",
+    "지우기": "Erase",
+    "힌트": "Hint",
+    "되돌리기": "Undo",
+    "힌트 %d": "Hint %d",
+    "메모 켜짐": "Notes on",
+    "메모 꺼짐": "Notes off",
+    "메모 ": "Notes ",
+    "켜짐": "on",
+    "꺼짐": "off",
+    "처음부터 있던 숫자입니다": "That number was given",
+    "실수 %d / %d": "Mistake %d / %d",
+    "힌트 %d번째": "Hint #%d",
+    "%s (%d~%d칸)": "%s (%d–%d givens)",
+    "%s · 실수 %d/%d": "%s · %d/%d mistakes",
+    "<b>%s</b><br>%s<br><br>남은 <b>%d</b><br>실수 <b>%d</b>/%d<br>힌트 <b>%d</b>"
+    "<br><br>최고 <b>%s</b>":
+        "<b>%s</b><br>%s<br><br>Left <b>%d</b><br>Mistakes <b>%d</b>/%d"
+        "<br>Hints <b>%d</b><br><br>Best <b>%s</b>",
+    "시간<br><b>%s</b><br><br>난이도<br><b>%s</b><br>필요 기법<br><b>%s</b>"
+    "<br><br>남은 칸 <b>%d</b><br>실수 <b>%d</b> / %d<br>힌트 <b>%d</b>"
+    "<br><br>최고 기록<br><b>%s</b>":
+        "Time<br><b>%s</b><br><br>Difficulty<br><b>%s</b><br>Needs<br><b>%s</b>"
+        "<br><br>Empty <b>%d</b><br>Mistakes <b>%d</b> / %d<br>Hints <b>%d</b>"
+        "<br><br>Best time<br><b>%s</b>",
+    # 난이도 이름
+    "쉬움": "Easy",
+    "보통": "Medium",
+    "어려움": "Hard",
+    "전문가": "Expert",
+    "마스터": "Master",
+    "익스트림": "Extreme",
+    # 풀이 기법 이름
+    "단일값": "Singles",
+    "후보 가두기": "Locked candidates",
+    "쌍·삼중": "Pairs / triples",
+    "X-Wing·Swordfish": "X-Wing / Swordfish",
+    "XY-Wing·색칠·유니크 렉탱글": "XY-Wing / Colouring / Unique Rectangle",
+    "포싱 체인": "Forcing chains",
+    "깊은 포싱 체인": "Deep forcing chains",
+    "논리로 못 품": "Not solvable by logic",
+    # 동작 이름 (설정 → 단축키)
+    "왼쪽 이동": "Move left",
+    "오른쪽 이동": "Move right",
+    "빠른 낙하": "Soft drop",
+    "시계 방향 회전": "Rotate clockwise",
+    "시계 방향 (보조)": "Rotate clockwise (alt)",
+    "반시계 방향 회전": "Rotate counter-clockwise",
+    "즉시 낙하": "Hard drop",
+    "180도 회전": "Rotate 180°",
+    "커서 왼쪽": "Cursor left",
+    "커서 오른쪽": "Cursor right",
+    "커서 위": "Cursor up",
+    "커서 아래": "Cursor down",
+    "메모 모드": "Notes mode",
+    "지우기 (보조)": "Erase (alt)",
+    "빠른 재시작": "Quick restart",
+    "즉시 숨기기": "Hide now",
+    "설정 열기": "Open settings",
+    "메뉴 열기": "Open menu",
+    "배경 지우기 토글": "Toggle erased background",
+    "더 진하게": "More opaque",
+    "더 투명하게": "More transparent",
+    "화면 크게": "Bigger",
+    "화면 작게": "Smaller",
+    "항상 위 토글": "Toggle always on top",
+    "사이드 패널 토글": "Toggle side panel",
+    "상단바 토글": "Toggle top bar",
+    "숨기기 / 복귀": "Hide / bring back",
+    "일시정지 토글": "Toggle pause",
+}
+for _n in range(1, 10):
+    TR["숫자 %d 넣기" % _n] = "Enter %d" % _n
+del _n
+
+
+def tr(text):
+    """화면에 보일 글을 지금 언어로. 번역이 없으면 원문 그대로 내보낸다."""
+    if LANG == "ko" or not text:
+        return text
+    got = TR.get(text)
+    if got is None:
+        _TR_MISS.add(text)
+        return text
+    return got
+
+
+def set_language(code):
+    global LANG
+    LANG = "en" if code == "en" else "ko"
+    return LANG
+
+
 # 게임이 무엇이든 그대로인 설정. 화면·은폐·창 위치가 여기 들어간다.
 COMMON_DEFAULTS = {
     # ---- 화면 ----
@@ -212,6 +462,8 @@ COMMON_DEFAULTS = {
     # ---- 은폐 ----
     "pause_on_hide": True,        # 숨기면 자동 일시정지
     "hide_on_blur": False,        # 포커스를 잃으면 자동으로 숨기기
+    # ---- 표시 언어 ----
+    "lang": "ko",                 # ko | en
     # ---- 공통 게임 ----
     "speed": 1.0,                 # 낙하 속도 배율
     # ---- 위치 ----
@@ -891,7 +1143,7 @@ class PuyoGame:
         self.state = "pop"
         self.timer = POP_MS
         if self.chain >= 2:
-            self.flash("%d 연쇄!" % self.chain)
+            self.flash(tr("%d 연쇄!") % self.chain)
 
     def _do_remove(self):
         for x, y in self.pop_cells:
@@ -929,7 +1181,7 @@ class PuyoGame:
                 self.zenkeshi = False
                 self.score += ALL_CLEAR_BONUS
                 n += ALL_CLEAR_GARBAGE
-                self.flash("싹쓸이 보너스! +%d, 방해뿌요 +%d"
+                self.flash(tr("싹쓸이 보너스! +%d, 방해뿌요 +%d")
                            % (ALL_CLEAR_BONUS, ALL_CLEAR_GARBAGE))
             if n:
                 cancel = min(n, self.pending)
@@ -941,7 +1193,7 @@ class PuyoGame:
         # 되고, 그 다음 연쇄를 터뜨리는 턴에 점수와 방해뿌요가 함께 나간다.
         if cleared_all:
             self.zenkeshi = True
-            self.flash("전체 지우기! 다음 공격에 보너스")
+            self.flash(tr("전체 지우기! 다음 공격에 보너스"))
 
         if self.pending > 0:
             self.state = "garbage"
@@ -1045,7 +1297,7 @@ class PuyoGame:
             if self.timer <= 0:
                 dropped = self.drop_garbage(self.pending)
                 self.pending -= dropped
-                self.flash("방해뿌요 %d개" % dropped)
+                self.flash(tr("방해뿌요 %d개") % dropped)
                 # 낙하 -> settle -> (터질 것 없음) -> _finish_chain -> spawn 으로
                 # 이어진다. 30개를 넘겨 남은 방해뿌요가 있으면 한 번 더 쏟아진다.
                 self._fall_or_settle()
@@ -1224,17 +1476,17 @@ class PuyoBoard(QWidget):
                               QColor("#fff6a8"))
         if self.win.paused and not g.over:
             self._veil(p)
-            self._center_text(p, "일시정지", c * 0.72, self.height() * 0.46,
+            self._center_text(p, tr("일시정지"), c * 0.72, self.height() * 0.46,
                               QColor("#ffffff"))
-            self._center_text(p, self.win.key_hint("pause") + " 로 재개",
+            self._center_text(p, self.win.key_hint("pause") + tr(" 로 재개"),
                               c * 0.38, self.height() * 0.56, QColor("#c9d1e0"))
         if g.over:
             self._veil(p)
             self._center_text(p, "GAME OVER", c * 0.68, self.height() * 0.40,
                               QColor("#ff8a95"))
-            self._center_text(p, "%s점" % format(g.score, ","), c * 0.46,
+            self._center_text(p, tr("%s점") % format(g.score, ","), c * 0.46,
                               self.height() * 0.50, QColor("#ffffff"))
-            self._center_text(p, "%s / %s 다시 시작"
+            self._center_text(p, tr("%s / %s 다시 시작")
                               % (self.win.key_hint("new_game"),
                                  self.win.key_hint("restart")),
                               c * 0.38, self.height() * 0.59, QColor("#c9d1e0"))
@@ -1315,7 +1567,7 @@ class PuyoNext(QWidget):
         if g.pending:
             p.setPen(QColor("#ffb4b4"))
             p.drawText(QRectF(0, self.height() - c * 0.9, self.width(), c * 0.9),
-                       Qt.AlignLeft | Qt.AlignVCenter, "예고 %d" % g.pending)
+                       Qt.AlignLeft | Qt.AlignVCenter, tr("예고 %d") % g.pending)
         p.end()
 
 
@@ -1341,51 +1593,51 @@ def puyo_settings_tab(dlg):
     colors = QComboBox()
     choices = list(range(3, len(PUYO_COLORS) + 1))
     for n in choices:
-        colors.addItem("%d색" % n, n)
+        colors.addItem(tr("%d색") % n, n)
     current = max(3, min(len(PUYO_COLORS), int(w.cfg.opt("num_colors"))))
     colors.setCurrentIndex(choices.index(current))
     colors.currentIndexChanged.connect(
         lambda i: dlg._set_game("num_colors", colors.itemData(i)))
-    form.addRow("뿌요 색 수", colors)
+    form.addRow(tr("뿌요 색 수"), colors)
 
     mode = QComboBox()
-    mode.addItem("엔드리스 (혼자 연쇄 연습)", "endless")
-    mode.addItem("방해뿌요 (일정 간격으로 방해뿌요가 쏟아진다)", "garbage")
+    mode.addItem(tr("엔드리스 (혼자 연쇄 연습)"), "endless")
+    mode.addItem(tr("방해뿌요 (일정 간격으로 방해뿌요가 쏟아진다)"), "garbage")
     mode.setCurrentIndex(["endless", "garbage"].index(w.cfg.opt("mode")))
     mode.currentIndexChanged.connect(
         lambda i: dlg._set_game("mode", mode.itemData(i)))
-    form.addRow("모드", mode)
+    form.addRow(tr("모드"), mode)
 
-    margin = QCheckBox("마진 타임 (시간이 지나면 상쇄가 어려워진다)")
+    margin = QCheckBox(tr("마진 타임 (시간이 지나면 상쇄가 어려워진다)"))
     margin.setChecked(bool(w.cfg.opt("margin_time")))
     margin.toggled.connect(lambda on: dlg._set_game("margin_time", bool(on)))
     form.addRow(margin)
 
     note = QLabel(
-        "6×12 필드 + 숨은 13번째 줄, 3열이 막히면 게임 오버.\n"
+        tr("6×12 필드 + 숨은 13번째 줄, 3열이 막히면 게임 오버.\n"
         "본가 점수식(연쇄·색·덩어리 보너스), 퀵턴·벽 밀기·바닥 밀기,\n"
-        "싹쓸이는 다음 공격에 얹히고, 방해뿌요 상쇄와 마진 타임을 따른다.")
+        "싹쓸이는 다음 공격에 얹히고, 방해뿌요 상쇄와 마진 타임을 따른다."))
     note.setWordWrap(True)
-    form.addRow("규칙", note)
+    form.addRow(tr("규칙"), note)
     return page
 
 
 def puyo_stats(win, g, compact):
     """사이드 패널 글과 상단바 글. (패널 HTML, 상단바 글) 을 돌려준다."""
-    mode = "방해뿌요" if win.cfg.opt("mode") == "garbage" else "엔드리스"
+    mode = tr("방해뿌요") if win.cfg.opt("mode") == "garbage" else tr("엔드리스")
     # 싹쓸이 보너스는 다음 공격에 나가므로 대기 중임을 계속 보여 준다
-    zen = ("<br><br><span style='color:#ffe066'>싹쓸이 대기<br>"
-           "+%d</span>" % ALL_CLEAR_BONUS) if g.zenkeshi else ""
-    info = "%s점 · %d연쇄" % (format(g.score, ","), g.chain)
+    zen = (tr("<br><br><span style='color:#ffe066'>싹쓸이 대기<br>"
+           "+%d</span>") % ALL_CLEAR_BONUS) if g.zenkeshi else ""
+    info = tr("%s점 · %d연쇄") % (format(g.score, ","), g.chain)
     if compact:
-        return ("<b>%s</b><br>연쇄 <b>%d</b><br>Lv <b>%d</b>%s"
+        return (tr("<b>%s</b><br>연쇄 <b>%d</b><br>Lv <b>%d</b>%s")
                 % (format(g.score, ","), g.chain, g.level(), zen), info)
-    return ("점수<br><b>%s</b>"
+    return (tr("점수<br><b>%s</b>"
             "<br><br>연쇄 <b>%d</b>"
             "<br>최고연쇄 <b>%d</b>"
             "<br>레벨 <b>%d</b>"
             "<br><br>최고점수<br><b>%s</b>"
-            "<br><br>%s<br>전송 <b>%d</b><br>예고 <b>%d</b>%s"
+            "<br><br>%s<br>전송 <b>%d</b><br>예고 <b>%d</b>%s")
             % (format(g.score, ","), g.chain, g.max_chain, g.level(),
                format(int(win.cfg.rec.get("best", 0)), ","), mode, g.sent,
                g.pending, zen), info)
@@ -1737,7 +1989,7 @@ class TetrisGame:
         if self.over:
             return False
         self.hold_used = True
-        self.flash("홀드")
+        self.flash(tr("홀드"))
         return True
 
     # ------------------------------------------------------------ 굳히기
@@ -1799,7 +2051,7 @@ class TetrisGame:
             base = TET_MINI_SCORE[0] if mini else TET_TSPIN_SCORE[0]
             self.score += base * level
             self.tspins += 1
-            self.last_action = "T-스핀 미니" if mini else "T-스핀"
+            self.last_action = tr("T-스핀 미니") if mini else tr("T-스핀")
             self.flash(self.last_action)
             return
 
@@ -1812,14 +2064,14 @@ class TetrisGame:
                     else TET_TSPIN_SCORE.get(n, 1600))
             attack = (TET_MINI_ATTACK.get(n, 1) if mini
                       else TET_TSPIN_ATTACK.get(n, 6))
-            name = ("T-스핀 미니 " if mini else "T-스핀 ") + \
-                {1: "싱글", 2: "더블", 3: "트리플"}.get(n, "")
+            name = (tr("T-스핀 미니 ") if mini else tr("T-스핀 ")) + \
+                {1: tr("싱글"), 2: tr("더블"), 3: tr("트리플")}.get(n, "")
             hard = True
             self.tspins += 1
         else:
             base = TET_LINE_SCORE.get(n, 800)
             attack = TET_ATTACK.get(n, 4)
-            name = {1: "싱글", 2: "더블", 3: "트리플", 4: "테트리스"}.get(n, "")
+            name = {1: tr("싱글"), 2: tr("더블"), 3: tr("트리플"), 4: tr("테트리스")}.get(n, "")
             hard = (n == 4)
             if n == 4:
                 self.tetrises += 1
@@ -1836,7 +2088,7 @@ class TetrisGame:
             gain += 50 * self.combo * level
             idx = min(self.combo, len(TET_COMBO_ATTACK) - 1)
             attack += TET_COMBO_ATTACK[idx]
-            name += " %d콤보" % self.combo
+            name += tr(" %d콤보") % self.combo
 
         # 퍼펙트 클리어 — 지울 줄을 걷어내면 판이 텅 비는가
         occupied = {y for y in range(TROWS)
@@ -1844,7 +2096,7 @@ class TetrisGame:
         if occupied and occupied <= set(full):
             gain += TET_PC_SCORE.get(n, 2000) * level
             attack += TET_PC_ATTACK
-            name = "퍼펙트 클리어"
+            name = tr("퍼펙트 클리어")
 
         self.score += gain
         self.last_action = name
@@ -1941,7 +2193,7 @@ class TetrisGame:
                 if self.pending > 0:
                     dropped = self.drop_garbage(self.pending)
                     self.pending -= dropped
-                    self.flash("방해줄 %d줄" % dropped)
+                    self.flash(tr("방해줄 %d줄") % dropped)
                 self.spawn()
 
 
@@ -2047,17 +2299,17 @@ class TetrisBoard(QWidget):
                               QColor("#fff6a8"))
         if self.win.paused and not g.over:
             self._veil(p)
-            self._center_text(p, "일시정지", c * 0.70, self.height() * 0.46,
+            self._center_text(p, tr("일시정지"), c * 0.70, self.height() * 0.46,
                               QColor("#ffffff"))
-            self._center_text(p, self.win.key_hint("pause") + " 로 재개",
+            self._center_text(p, self.win.key_hint("pause") + tr(" 로 재개"),
                               c * 0.36, self.height() * 0.55, QColor("#c9d1e0"))
         if g.over:
             self._veil(p)
             self._center_text(p, "GAME OVER", c * 0.64, self.height() * 0.40,
                               QColor("#ff8a95"))
-            self._center_text(p, "%s점" % format(g.score, ","), c * 0.44,
+            self._center_text(p, tr("%s점") % format(g.score, ","), c * 0.44,
                               self.height() * 0.50, QColor("#ffffff"))
-            self._center_text(p, "%s / %s 다시 시작"
+            self._center_text(p, tr("%s / %s 다시 시작")
                               % (self.win.key_hint("new_game"),
                                  self.win.key_hint("restart")),
                               c * 0.36, self.height() * 0.59, QColor("#c9d1e0"))
@@ -2153,7 +2405,7 @@ class TetrisSide(QWidget):
         if g.pending:
             p.setPen(QColor("#ffb4b4"))
             p.drawText(QRectF(0, self.height() - c * 1.1, self.width(), c * 1.1),
-                       Qt.AlignLeft | Qt.AlignVCenter, "예고 %d" % g.pending)
+                       Qt.AlignLeft | Qt.AlignVCenter, tr("예고 %d") % g.pending)
         p.end()
 
 
@@ -2166,48 +2418,48 @@ def tetris_settings_tab(dlg):
     lv.setRange(1, 15)
     lv.setValue(int(w.cfg.opt("start_level")))
     lv.valueChanged.connect(lambda v: dlg._set_game("start_level", v))
-    form.addRow("시작 레벨", lv)
+    form.addRow(tr("시작 레벨"), lv)
 
     mode = QComboBox()
-    mode.addItem("엔드리스 (혼자 쌓기 연습)", "endless")
-    mode.addItem("방해줄 (일정 간격으로 방해줄이 올라온다)", "garbage")
+    mode.addItem(tr("엔드리스 (혼자 쌓기 연습)"), "endless")
+    mode.addItem(tr("방해줄 (일정 간격으로 방해줄이 올라온다)"), "garbage")
     mode.setCurrentIndex(["endless", "garbage"].index(w.cfg.opt("mode")))
     mode.currentIndexChanged.connect(
         lambda i: dlg._set_game("mode", mode.itemData(i)))
-    form.addRow("모드", mode)
+    form.addRow(tr("모드"), mode)
 
-    hold = QCheckBox("홀드 사용 (조각마다 한 번)")
+    hold = QCheckBox(tr("홀드 사용 (조각마다 한 번)"))
     hold.setChecked(bool(w.cfg.opt("use_hold")))
     hold.toggled.connect(lambda on: dlg._set_game("use_hold", bool(on)))
     form.addRow(hold)
 
     note = QLabel(
-        "10×20 필드. SRS 회전과 벽 밀기 표(I 는 따로), 7-bag,\n"
+        tr("10×20 필드. SRS 회전과 벽 밀기 표(I 는 따로), 7-bag,\n"
         "굳기 지연 0.5초에 이동·회전 15회까지 미루기,\n"
         "T-스핀 3코너 판정, 백투백, 콤보, 퍼펙트 클리어,\n"
-        "가이드라인 점수와 중력 곡선, 뿌요테트 공격표를 따른다.")
+        "가이드라인 점수와 중력 곡선, 뿌요테트 공격표를 따른다."))
     note.setWordWrap(True)
-    form.addRow("규칙", note)
+    form.addRow(tr("규칙"), note)
     return page
 
 
 def tetris_stats(win, g, compact):
-    info = "%s점 · %d줄" % (format(g.score, ","), g.lines)
+    info = tr("%s점 · %d줄") % (format(g.score, ","), g.lines)
     act = ("<br><br><span style='color:#ffe066'>%s</span>" % g.last_action
            if g.last_action else "")
     if compact:
-        return ("<b>%s</b><br>줄 <b>%d</b><br>Lv <b>%d</b>%s"
+        return (tr("<b>%s</b><br>줄 <b>%d</b><br>Lv <b>%d</b>%s")
                 % (format(g.score, ","), g.lines, g.level(), act), info)
     b2b = "<br>B2B <b>ON</b>" if g.b2b else ""
-    combo = "<br>콤보 <b>%d</b>" % g.combo if g.combo > 0 else ""
-    mode = "방해줄" if win.cfg.opt("mode") == "garbage" else "엔드리스"
-    return ("점수<br><b>%s</b>"
+    combo = tr("<br>콤보 <b>%d</b>") % g.combo if g.combo > 0 else ""
+    mode = tr("방해줄") if win.cfg.opt("mode") == "garbage" else tr("엔드리스")
+    return (tr("점수<br><b>%s</b>"
             "<br><br>줄 <b>%d</b>"
             "<br>레벨 <b>%d</b>"
             "<br>테트리스 <b>%d</b>"
             "<br>T-스핀 <b>%d</b>%s%s"
             "<br><br>최고점수<br><b>%s</b>"
-            "<br><br>%s<br>전송 <b>%d</b><br>예고 <b>%d</b>%s"
+            "<br><br>%s<br>전송 <b>%d</b><br>예고 <b>%d</b>%s")
             % (format(g.score, ","), g.lines, g.level(), g.tetrises, g.tspins,
                b2b, combo, format(int(win.cfg.rec.get("best", 0)), ","),
                mode, g.sent, g.pending, act), info)
@@ -2260,8 +2512,8 @@ SUD_LEVELS = [
     ("medium",  "보통",     (34, 38), 0, 0),
     ("hard",    "어려움",   (30, 33), 0, 2),
     ("expert",  "전문가",   (27, 30), 1, 4),
-    ("master",  "마스터",   (25, 28), 3, 5),
-    ("extreme", "익스트림", (22, 26), 5, 5),
+    ("master",  "마스터",   (25, 28), 3, 4),
+    ("extreme", "익스트림", (22, 26), 5, 6),
 ]
 SUD_LEVEL_KEYS = [k for k, _l, _g, _n, _c in SUD_LEVELS]
 SUD_LEVEL_LABEL = {k: l for k, l, _g, _n, _c in SUD_LEVELS}
@@ -2270,10 +2522,12 @@ SUD_LEVEL_INFO = {k: (g, n, c) for k, _l, g, n, c in SUD_LEVELS}
 SUD_BASE_SCORE = {"easy": 1000, "medium": 2000, "hard": 3500,
                   "expert": 5000, "master": 7000, "extreme": 10000}
 
-SUD_CELL_COLOR = "#e8ecf4"        # 내가 넣은 숫자
-SUD_GIVEN_COLOR = "#9fb0cc"       # 처음부터 주어진 숫자
-SUD_WRONG_COLOR = "#ff6b6b"       # 틀린 숫자
-SUD_NOTE_COLOR = "#7f8ba3"
+# sudoku.com 처럼 "처음부터 있던 숫자"와 "내가 넣은 숫자"를 색으로 가른다.
+# 내가 넣은 숫자는 굵은 파랑이라 어두운 판에서도 또렷하게 읽힌다.
+SUD_CELL_COLOR = "#7cc4ff"        # 내가 넣은 숫자
+SUD_GIVEN_COLOR = "#d3dcea"       # 처음부터 주어진 숫자
+SUD_WRONG_COLOR = "#ff7b7b"       # 틀린 숫자
+SUD_NOTE_COLOR = "#9aa8c0"        # 메모(연필)
 
 
 def sud_peers(i):
@@ -2425,6 +2679,29 @@ def sud_candidates(grid):
     return cand
 
 
+def _sud_locked_step(work, cand):
+    """가정 안에서 쓰는 후보 가두기 한 번. 뭔가 지웠으면 True."""
+    hit = False
+    for box in SUD_BOXES:
+        for v in SUD_ALL:
+            spots = [i for i in box if not work[i] and v in cand[i]]
+            if not spots or len(spots) > 3:
+                continue
+            rows = {i // SUD_N for i in spots}
+            cols = {i % SUD_N for i in spots}
+            if len(rows) == 1:
+                line = SUD_ROWS[next(iter(rows))]
+            elif len(cols) == 1:
+                line = SUD_COLS[next(iter(cols))]
+            else:
+                continue
+            for i in line:
+                if i not in box and v in cand[i]:
+                    cand[i].discard(v)
+                    hit = True
+    return hit
+
+
 class SudSolver:
     """사람이 쓰는 기법만으로 푸는 풀이기 (추측으로 훑지 않는다).
 
@@ -2443,8 +2720,10 @@ class SudSolver:
 
     STEPS = [("locked", "locked"), ("subset", "subset"),
              ("xwing", "xwing"), ("swordfish", "swordfish"),
-             ("xywing", "xywing"), ("ur", "unique_rect"),
-             ("chain", "chain")]
+             ("jellyfish", "jellyfish"), ("xywing", "xywing"),
+             ("xyzwing", "xyzwing"), ("coloring", "coloring"),
+             ("ur", "unique_rect"), ("chain", "chain"),
+             ("deep_chain", "deep_chain")]
 
     def __init__(self, grid):
         self.work = list(grid)
@@ -2591,6 +2870,9 @@ class SudSolver:
     def swordfish(self):
         return self._fish(3)
 
+    def jellyfish(self):
+        return self._fish(4)
+
     def xywing(self):
         hit = False
         bi = [i for i in range(81)
@@ -2617,6 +2899,95 @@ class SudSolver:
                 for i in SUD_PEERS[w1] & SUD_PEERS[w2]:
                     if i != pivot and c in self.cand[i]:
                         self.cand[i].discard(c)
+                        hit = True
+        return hit
+
+    def xyzwing(self):
+        """XYZ-Wing — 축이 {a,b,c}, 두 날개가 {a,c}·{b,c} 일 때, 셋 모두를
+        보는 칸에서는 c 가 설 자리가 없다."""
+        hit = False
+        tri = [i for i in range(81)
+               if not self.work[i] and len(self.cand[i]) == 3]
+        bi = [i for i in range(81)
+              if not self.work[i] and len(self.cand[i]) == 2]
+        for pivot in tri:
+            if len(self.cand[pivot]) != 3:
+                continue
+            wings = [i for i in bi
+                     if i in SUD_PEERS[pivot] and len(self.cand[i]) == 2
+                     and self.cand[i] <= self.cand[pivot]]
+            for w1, w2 in itertools.combinations(wings, 2):
+                inter = self.cand[w1] & self.cand[w2]
+                if len(inter) != 1:
+                    continue
+                if self.cand[w1] | self.cand[w2] != self.cand[pivot]:
+                    continue
+                c = next(iter(inter))
+                for i in SUD_PEERS[pivot] & SUD_PEERS[w1] & SUD_PEERS[w2]:
+                    if c in self.cand[i]:
+                        self.cand[i].discard(c)
+                        hit = True
+        return hit
+
+    def coloring(self):
+        """단순 색칠 — 한 숫자가 어떤 줄에서 딱 두 칸에만 들어갈 수 있으면
+        그 둘은 서로 반대다. 이 관계를 따라 두 색으로 칠한다.
+
+          · 같은 색 둘이 한 줄에 같이 있으면 그 색은 전부 거짓이다
+          · 두 색을 모두 보는 칸에는 그 숫자가 들어갈 수 없다
+        """
+        hit = False
+        for v in SUD_ALL:
+            spots = [i for i in range(81)
+                     if not self.work[i] and v in self.cand[i]]
+            if len(spots) < 4:
+                continue
+            link = {i: set() for i in spots}
+            for unit in SUD_UNITS:
+                here = [i for i in unit if i in link]
+                if len(here) == 2:
+                    a, b = here
+                    link[a].add(b)
+                    link[b].add(a)
+            seen = set()
+            for start in spots:
+                if start in seen or not link[start]:
+                    continue
+                color = {start: 0}
+                stack = [start]
+                seen.add(start)
+                while stack:
+                    i = stack.pop()
+                    for j in link[i]:
+                        if j not in color:
+                            color[j] = 1 - color[i]
+                            seen.add(j)
+                            stack.append(j)
+                if len(color) < 4:
+                    continue
+                groups = ([i for i in color if color[i] == 0],
+                          [i for i in color if color[i] == 1])
+                # 같은 색 둘이 한 줄에 있으면 그 색은 전부 거짓
+                bad = None
+                for gi, grp in enumerate(groups):
+                    for a, b in itertools.combinations(grp, 2):
+                        if b in SUD_PEERS[a]:
+                            bad = gi
+                            break
+                    if bad is not None:
+                        break
+                if bad is not None:
+                    for i in groups[bad]:
+                        if v in self.cand[i]:
+                            self.cand[i].discard(v)
+                            hit = True
+                    continue
+                # 두 색을 모두 보는 칸에서는 그 숫자를 지운다
+                for i in range(81):
+                    if self.work[i] or i in color or v not in self.cand[i]:
+                        continue
+                    if any(a in SUD_PEERS[i] for a in groups[0]) and                        any(b in SUD_PEERS[i] for b in groups[1]):
+                        self.cand[i].discard(v)
                         hit = True
         return hit
 
@@ -2688,28 +3059,45 @@ class SudSolver:
                         again = True
         return work
 
-    def _assume(self, i, v):
+    def _assume(self, i, v, strong=False):
         work = list(self.work)
         cand = [set(c) for c in self.cand]
         work[i] = v
         cand[i] = set()
         for p in SUD_PEERS[i]:
             cand[p].discard(v)
-        return self._propagate(work, cand)
+        got = self._propagate(work, cand)
+        if got is None or not strong:
+            return got
+        # 강한 전파 — 단일값이 막히면 후보 가두기까지 써 보고 다시 민다
+        for _ in range(6):
+            if all(work):
+                return work
+            if not _sud_locked_step(work, cand):
+                return work
+            got = self._propagate(work, cand)
+            if got is None:
+                return None
+        return work
 
-    def chain(self):
+    def deep_chain(self):
+        """깊은 포싱 체인 — 후보가 셋인 칸까지 가정하고, 가정 안에서도
+        후보 가두기까지 써서 민다. 보통 체인으로 안 풀리는 판을 연다."""
+        return self.chain(max_cand=3, strong=True, limit=16)
+
+    def chain(self, max_cand=2, strong=False, limit=28):
         bi = [i for i in range(81)
-              if not self.work[i] and len(self.cand[i]) == 2]
+              if not self.work[i] and 2 <= len(self.cand[i]) <= max_cand]
         # 이웃이 많은 칸부터 — 모순이 빨리 드러난다
         bi.sort(key=lambda i: -sum(1 for p in SUD_PEERS[i] if not self.work[p]))
-        for i in bi[:28]:
-            if len(self.cand[i]) != 2:
+        for i in bi[:limit]:
+            if not (2 <= len(self.cand[i]) <= max_cand):
                 continue
             vals = sorted(self.cand[i])
             outs = {}
             dead = []
             for v in vals:
-                got = self._assume(i, v)
+                got = self._assume(i, v, strong)
                 if got is None:
                     dead.append(v)
                 else:
@@ -2718,11 +3106,14 @@ class SudSolver:
                 for v in dead:
                     self.cand[i].discard(v)
                 return True
-            if len(outs) == 2:
-                wa, wb = outs[vals[0]], outs[vals[1]]
+            if len(outs) == len(vals) and len(vals) >= 2:
+                # 모든 갈래가 같은 칸에 같은 값을 강요하면 그 값으로 확정된다
+                first = outs[vals[0]]
                 for j in range(81):
-                    if not self.work[j] and wa[j] and wa[j] == wb[j]:
-                        self._place(j, wa[j])
+                    if self.work[j] or not first[j]:
+                        continue
+                    if all(outs[v][j] == first[j] for v in vals[1:]):
+                        self._place(j, first[j])
                         return True
         return False
 
@@ -2748,18 +3139,18 @@ class SudSolver:
 
 
 # 난이도 등급 — 이 단계까지 써야 풀린다
-SUD_TIERS = [
-    (0, {"singles"}),
-    (1, {"singles", "locked"}),
-    (2, {"singles", "locked", "subset"}),
-    (3, {"singles", "locked", "subset", "xwing", "swordfish"}),
-    (4, {"singles", "locked", "subset", "xwing", "swordfish", "xywing", "ur"}),
-    (5, {"singles", "locked", "subset", "xwing", "swordfish", "xywing", "ur",
-         "chain"}),
-]
+_T0 = {"singles"}
+_T1 = _T0 | {"locked"}
+_T2 = _T1 | {"subset"}
+_T3 = _T2 | {"xwing", "swordfish", "jellyfish"}
+_T4 = _T3 | {"xywing", "xyzwing", "ur", "coloring"}
+_T5 = _T4 | {"chain"}
+_T6 = _T5 | {"deep_chain"}
+SUD_TIERS = [(0, _T0), (1, _T1), (2, _T2), (3, _T3), (4, _T4), (5, _T5),
+             (6, _T6)]
 SUD_TECH_NAME = {0: "단일값", 1: "후보 가두기", 2: "쌍·삼중",
-                 3: "X-Wing·Swordfish", 4: "XY-Wing·유니크 렉탱글",
-                 5: "포싱 체인", 6: "논리로 못 품"}
+                 3: "X-Wing·Swordfish", 4: "XY-Wing·색칠·유니크 렉탱글",
+                 5: "포싱 체인", 6: "깊은 포싱 체인", 7: "논리로 못 품"}
 
 
 def sud_grade(grid):
@@ -2771,7 +3162,7 @@ def sud_grade(grid):
     for tier, allow in SUD_TIERS:
         if SudSolver(grid).solve(allow):
             return tier
-    return 6
+    return 7
 
 
 def sud_make_puzzle(level, tries=20, budget=6.0):
@@ -2808,7 +3199,7 @@ def sud_make_puzzle(level, tries=20, budget=6.0):
             continue
 
         tech = sud_grade(puz)
-        if tech >= 6:
+        if tech >= 7:
             # 여기 넣은 기법으로 못 푸는 문제다. 사람이 추측으로 찍어야 하니
             # 어느 난이도에서도 내보내지 않는다.
             continue
@@ -2825,7 +3216,7 @@ def sud_make_puzzle(level, tries=20, budget=6.0):
         if time.monotonic() > deadline:
             break
 
-    if best is None or best[3] >= 6:
+    if best is None or best[3] >= 7:
         # 시간 안에 하나도 못 만든 아주 드문 경우. 확실히 풀리는 판을 준다.
         sol = sud_full_grid()
         puz = list(sol)
@@ -2905,7 +3296,7 @@ class SudokuGame:
         if self.over:
             return
         self.note_mode = not self.note_mode
-        self.flash("메모 " + ("켜짐" if self.note_mode else "꺼짐"))
+        self.flash(tr("메모 ") + (tr("켜짐") if self.note_mode else tr("꺼짐")))
 
     def _push(self, kind, i, before_v, before_notes, before_wrong):
         self.undo_stack.append((kind, i, before_v, set(before_notes),
@@ -2919,7 +3310,7 @@ class SudokuGame:
             return
         i = self.cursor
         if self.given[i]:
-            self.flash("처음부터 있던 숫자입니다")
+            self.flash(tr("처음부터 있던 숫자입니다"))
             return
         if self.note_mode:
             if self.grid[i]:
@@ -2950,7 +3341,7 @@ class SudokuGame:
             if not was_filled:
                 self.filled += 1
             self.mistakes += 1
-            self.flash("실수 %d / %d" % (self.mistakes, SUD_MISTAKES))
+            self.flash(tr("실수 %d / %d") % (self.mistakes, SUD_MISTAKES))
             if self.mistakes >= SUD_MISTAKES:
                 self.state = "over"
                 self.over = True
@@ -3007,7 +3398,7 @@ class SudokuGame:
             self.filled += 1
         self.hints += 1
         self._clear_peer_notes(i, self.grid[i])
-        self.flash("힌트 %d번째" % self.hints)
+        self.flash(tr("힌트 %d번째") % self.hints)
         if self.filled >= 81:
             self._finish()
 
@@ -3024,7 +3415,7 @@ class SudokuGame:
         self.over = True
         self.state = "over"
         self.score = self.final_score()
-        self.flash("완성!")
+        self.flash(tr("완성!"))
 
     def final_score(self):
         """sudoku.com 은 점수 식을 공개하지 않는다. 난이도를 바탕으로
@@ -3159,6 +3550,10 @@ class SudokuBoard(QWidget):
         num.setPixelSize(max(9, int(c * 0.62)))
         note_font = QFont(UI_FONT)
         note_font.setPixelSize(max(6, int(c * 0.26)))
+        # 배경을 옅게 두면 뒤쪽 창이 비쳐, 밝은 문서 위에서는 숫자가 묻힌다.
+        # 그럴 때만 숫자 뒤에 어두운 그림자를 한 겹 깔아 준다.
+        faint = int(s["bg_alpha"]) < 140
+        shadow = QColor(0, 0, 0, 190)
         for i in range(81):
             r, col = divmod(i, SUD_N)
             rect = QRectF(col * c, r * c, c, c)
@@ -3170,39 +3565,45 @@ class SudokuBoard(QWidget):
                     color = QColor(SUD_GIVEN_COLOR)
                 else:
                     color = QColor(SUD_CELL_COLOR)
-                num.setBold(g.given[i])
+                num.setBold(True)
                 p.setFont(num)
+                if faint:
+                    p.setPen(shadow)
+                    p.drawText(rect.translated(1, 1), Qt.AlignCenter, str(v))
                 p.setPen(color)
                 p.drawText(rect, Qt.AlignCenter, str(v))
             elif g.notes[i]:
                 p.setFont(note_font)
-                p.setPen(QColor(SUD_NOTE_COLOR))
                 for n in g.notes[i]:
                     nr, nc = divmod(n - 1, 3)
                     sub = QRectF(col * c + nc * c / 3.0, r * c + nr * c / 3.0,
                                  c / 3.0, c / 3.0)
+                    if faint:
+                        p.setPen(shadow)
+                        p.drawText(sub.translated(1, 1), Qt.AlignCenter, str(n))
+                    p.setPen(QColor(SUD_NOTE_COLOR))
                     p.drawText(sub, Qt.AlignCenter, str(n))
 
         # 안내 문구는 판을 가리지 않도록 상단바로 보낸다 (sudoku_stats 참고)
         if self.win.paused and not g.over:
             self._veil(p)
-            self._center_text(p, "일시정지", c * 0.62, self.height() * 0.47,
+            self._center_text(p, tr("일시정지"), c * 0.62, self.height() * 0.47,
                               QColor("#ffffff"))
-            self._center_text(p, self.win.key_hint("pause") + " 로 재개",
+            self._center_text(p, self.win.key_hint("pause") + tr(" 로 재개"),
                               c * 0.32, self.height() * 0.56, QColor("#c9d1e0"))
         elif g.over:
             self._veil(p)
             if g.solved:
-                self._center_text(p, "완성!", c * 0.66, self.height() * 0.40,
+                self._center_text(p, tr("완성!"), c * 0.66, self.height() * 0.40,
                                   QColor("#9cf0a6"))
-                self._center_text(p, "%s · %s점" % (g.time_text(),
+                self._center_text(p, tr("%s · %s점") % (g.time_text(),
                                                    format(g.score, ",")),
                                   c * 0.38, self.height() * 0.50,
                                   QColor("#ffffff"))
             else:
-                self._center_text(p, "실수 %d번" % SUD_MISTAKES, c * 0.60,
+                self._center_text(p, tr("실수 %d번") % SUD_MISTAKES, c * 0.60,
                                   self.height() * 0.42, QColor("#ff8a95"))
-            self._center_text(p, "%s / %s 새 문제"
+            self._center_text(p, tr("%s / %s 새 문제")
                               % (self.win.key_hint("new_game"),
                                  self.win.key_hint("restart")),
                               c * 0.32, self.height() * 0.60, QColor("#c9d1e0"))
@@ -3298,6 +3699,17 @@ class SudokuPad(QWidget):
         f.setBold(True)
         small = QFont(UI_FONT)
         small.setPixelSize(max(7, int(c * 0.26)))
+        # 판과 같은 이유로, 배경이 옅으면 글자 뒤에 그림자를 깐다.
+        faint = int(self.win.cfg.s["bg_alpha"]) < 140
+        shadow = QColor(0, 0, 0, 190)
+
+        def text(rect, font, color, msg):
+            p.setFont(font)
+            if faint:
+                p.setPen(shadow)
+                p.drawText(rect.translated(1, 1), Qt.AlignCenter, msg)
+            p.setPen(color)
+            p.drawText(rect, Qt.AlignCenter, msg)
 
         for n in range(1, 10):
             row, col = divmod(n - 1, 3)
@@ -3306,15 +3718,12 @@ class SudokuPad(QWidget):
             p.setPen(Qt.NoPen)
             p.setBrush(QColor(255, 255, 255, 16 if left else 6))
             p.drawRoundedRect(rect, c * 0.16, c * 0.16)
-            p.setFont(f)
-            p.setPen(QColor("#e8ecf4") if left else QColor("#586074"))
-            p.drawText(rect, Qt.AlignCenter, str(n))
+            text(rect, f, QColor("#e8ecf4") if left else QColor("#6f7b93"),
+                 str(n))
             if left:
-                p.setFont(small)
-                p.setPen(QColor("#8892a6"))
-                p.drawText(QRectF(rect.x(), rect.y() + rect.height() * 0.62,
-                                  rect.width(), rect.height() * 0.36),
-                           Qt.AlignCenter, str(left))
+                text(QRectF(rect.x(), rect.y() + rect.height() * 0.62,
+                            rect.width(), rect.height() * 0.36),
+                     small, QColor("#9aa5ba"), str(left))
 
         top = c * 3 + c * 0.4
         p.setFont(small)
@@ -3327,13 +3736,12 @@ class SudokuPad(QWidget):
             p.setBrush(QColor(74, 125, 255, 150) if on
                        else QColor(255, 255, 255, 16))
             p.drawRoundedRect(rect, c * 0.14, c * 0.14)
-            p.setPen(QColor("#e8ecf4"))
-            text = label
+            msg = tr(label)
             if act == "note":
-                text = "메모 " + ("켜짐" if g.note_mode else "꺼짐")
+                msg = tr("메모 ") + (tr("켜짐") if g.note_mode else tr("꺼짐"))
             elif act == "hint":
-                text = "힌트 %d" % g.hints
-            p.drawText(rect, Qt.AlignCenter, text)
+                msg = tr("힌트 %d") % g.hints
+            text(rect, small, QColor("#e8ecf4"), msg)
         p.end()
 
 
@@ -3345,7 +3753,7 @@ def sudoku_settings_tab(dlg):
     level = QComboBox()
     for key in SUD_LEVEL_KEYS:
         band, need, cap = SUD_LEVEL_INFO[key]
-        level.addItem("%s (%d~%d칸)" % (SUD_LEVEL_LABEL[key], band[0], band[1]),
+        level.addItem(tr("%s (%d~%d칸)") % (tr(SUD_LEVEL_LABEL[key]), band[0], band[1]),
                       key)
     cur = w.cfg.opt("level")
     if cur not in SUD_LEVEL_KEYS:
@@ -3353,22 +3761,22 @@ def sudoku_settings_tab(dlg):
     level.setCurrentIndex(SUD_LEVEL_KEYS.index(cur))
     level.currentIndexChanged.connect(
         lambda i: dlg._set_game("level", level.itemData(i)))
-    form.addRow("난이도", level)
+    form.addRow(tr("난이도"), level)
 
     note = QLabel(
-        "sudoku.com 방식이다. 실수 3번이면 끝, 메모(연필)·힌트·되돌리기가 있고,\n"
+        tr("sudoku.com 방식이다. 실수 3번이면 끝, 메모(연필)·힌트·되돌리기가 있고,\n"
         "숫자를 넣으면 같은 줄·칸·박스의 그 숫자 메모가 자동으로 지워진다.\n"
         "고른 칸의 줄·칸·박스와 같은 숫자를 함께 밝게 보여 준다.\n"
         "난이도는 주어진 숫자 개수와 풀이에 필요한 기법으로 가른다.\n"
-        "난이도를 바꾸면 다음 문제부터 적용된다 (F2 / R 로 새 문제).")
+        "난이도를 바꾸면 다음 문제부터 적용된다 (F2 / R 로 새 문제)."))
     note.setWordWrap(True)
-    form.addRow("규칙", note)
+    form.addRow(tr("규칙"), note)
     return page
 
 
 def sudoku_stats(win, g, compact):
     left = 81 - g.filled
-    info = "%s · 실수 %d/%d" % (g.time_text(), g.mistakes, SUD_MISTAKES)
+    info = tr("%s · 실수 %d/%d") % (g.time_text(), g.mistakes, SUD_MISTAKES)
     if g.msg:
         info = g.msg              # 판을 가리는 대신 상단바에 띄운다
     # 시간 기록은 음수로 담아 둔다 (창은 큰 값으로만 갱신하므로, 음수로 넣어야
@@ -3377,23 +3785,23 @@ def sudoku_stats(win, g, compact):
     best_txt = "-" if best <= 0 else "%d:%02d" % (best // 60, best % 60)
     if compact:
         # 스도쿠 판은 정사각이라 옆 칸이 짧다. 간략형에도 꼭 필요한 것은 담는다.
-        return ("<b>%s</b>"
+        return (tr("<b>%s</b>"
                 "<br>%s"
                 "<br><br>남은 <b>%d</b>"
                 "<br>실수 <b>%d</b>/%d"
                 "<br>힌트 <b>%d</b>"
-                "<br><br>최고 <b>%s</b>"
-                % (g.time_text(), SUD_LEVEL_LABEL.get(g.level, g.level),
+                "<br><br>최고 <b>%s</b>")
+                % (g.time_text(), tr(SUD_LEVEL_LABEL.get(g.level, g.level)),
                    left, g.mistakes, SUD_MISTAKES, g.hints, best_txt), info)
-    return ("시간<br><b>%s</b>"
+    return (tr("시간<br><b>%s</b>"
             "<br><br>난이도<br><b>%s</b>"
             "<br>필요 기법<br><b>%s</b>"
             "<br><br>남은 칸 <b>%d</b>"
             "<br>실수 <b>%d</b> / %d"
             "<br>힌트 <b>%d</b>"
-            "<br><br>최고 기록<br><b>%s</b>"
-            % (g.time_text(), SUD_LEVEL_LABEL.get(g.level, g.level),
-               SUD_TECH_NAME.get(g.tech, "?"), left, g.mistakes,
+            "<br><br>최고 기록<br><b>%s</b>")
+            % (g.time_text(), tr(SUD_LEVEL_LABEL.get(g.level, g.level)),
+               tr(SUD_TECH_NAME.get(g.tech, "?")), left, g.mistakes,
                SUD_MISTAKES, g.hints, best_txt), info)
 
 
@@ -3525,14 +3933,14 @@ class ShortcutRow(QWidget):
         self.edit.editingFinished.connect(self._emit)
         self.edit.keySequenceChanged.connect(self._emit)
 
-        clear = QPushButton("해제")
-        clear.setToolTip("이 동작에 키를 지정하지 않음")
+        clear = QPushButton(tr("해제"))
+        clear.setToolTip(tr("이 동작에 키를 지정하지 않음"))
         clear.setFixedWidth(42)
         clear.setFocusPolicy(Qt.NoFocus)
         clear.clicked.connect(lambda: self.set_seq(""))
 
-        reset = QPushButton("기본")
-        reset.setToolTip("기본값 %s 으로" % (default_seq or "없음"))
+        reset = QPushButton(tr("기본"))
+        reset.setToolTip(tr("기본값 %s 으로") % (default_seq or tr("없음")))
         reset.setFixedWidth(42)
         reset.setFocusPolicy(Qt.NoFocus)
         reset.clicked.connect(lambda: self.set_seq(default_seq))
@@ -3558,13 +3966,13 @@ class SettingsDialog(QDialog):
     def __init__(self, win):
         super().__init__(win)
         self.w = win
-        self.setWindowTitle("설정")
+        self.setWindowTitle(tr("설정"))
         self.setMinimumSize(520, 560)
 
         tabs = QTabWidget()
-        tabs.addTab(self._screen_tab(), "화면")
-        tabs.addTab(self._game_tab(), "게임")
-        tabs.addTab(self._keys_tab(), "단축키")
+        tabs.addTab(self._screen_tab(), tr("화면"))
+        tabs.addTab(self._game_tab(), tr("게임"))
+        tabs.addTab(self._keys_tab(), tr("단축키"))
 
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
         buttons.rejected.connect(self.accept)
@@ -3584,36 +3992,36 @@ class SettingsDialog(QDialog):
         cell.setValue(int(s["cell"]))
         cell.setSuffix(" px")
         cell.valueChanged.connect(self._set_cell)
-        form.addRow("셀 크기", cell)
+        form.addRow(tr("셀 크기"), cell)
 
         color = QPushButton(s["bg_color"])
         color.clicked.connect(lambda: self._pick_color(color))
-        form.addRow("배경색", color)
+        form.addRow(tr("배경색"), color)
 
         self.bg_slider = QSlider(Qt.Horizontal)
         self.bg_slider.setRange(0, 255)
         self.bg_slider.setValue(int(s["bg_alpha"]))
         self.bg_slider.valueChanged.connect(self._set_bg_alpha)
-        form.addRow("배경 진하기 (0 = 배경 지우기)", self.bg_slider)
+        form.addRow(tr("배경 진하기 (0 = 배경 지우기)"), self.bg_slider)
 
         grid = QSlider(Qt.Horizontal)
         grid.setRange(0, 90)
         grid.setValue(int(s["grid_alpha"]))
         grid.valueChanged.connect(self._set_grid_alpha)
-        form.addRow("격자선", grid)
+        form.addRow(tr("격자선"), grid)
 
         self.op_slider = QSlider(Qt.Horizontal)
         self.op_slider.setRange(15, 100)
         self.op_slider.setValue(int(float(s["opacity"]) * 100))
         self.op_slider.valueChanged.connect(
             lambda v: self.w.set_opacity(v / 100.0, from_dialog=True))
-        form.addRow("창 투명도", self.op_slider)
+        form.addRow(tr("창 투명도"), self.op_slider)
 
-        for key, label in (("always_on_top", "항상 위"),
-                           ("frameless", "테두리 없음"),
-                           ("show_topbar", "상단바 표시"),
-                           ("show_panel", "사이드 패널 표시"),
-                           ("show_ghost", "착지 위치 표시")):
+        for key, label in (("always_on_top", tr("항상 위")),
+                           ("frameless", tr("테두리 없음")),
+                           ("show_topbar", tr("상단바 표시")),
+                           ("show_panel", tr("사이드 패널 표시")),
+                           ("show_ghost", tr("착지 위치 표시"))):
             chk = QCheckBox(label)
             chk.setChecked(bool(s[key]))
             chk.toggled.connect(lambda on, k=key: self._set_flag(k, on))
@@ -3622,35 +4030,43 @@ class SettingsDialog(QDialog):
         icons = QHBoxLayout()
         holder = QWidget()
         holder.setLayout(icons)
-        for key, label in (("btn_hide", "숨기기"), ("btn_settings", "설정"),
-                           ("btn_restart", "재시작")):
+        for key, label in (("btn_hide", tr("숨기기")), ("btn_settings", tr("설정")),
+                           ("btn_restart", tr("재시작"))):
             chk = QCheckBox(label)
             chk.setChecked(bool(s[key]))
             chk.toggled.connect(lambda on, k=key: self._set_flag(k, on))
             icons.addWidget(chk)
-        form.addRow(QLabel("상단바 아이콘"))
+        form.addRow(QLabel(tr("상단바 아이콘")))
         form.addRow(holder)
 
+        lang = QComboBox()
+        for code, name in LANG_NAMES:
+            lang.addItem(name, code)
+        lang.setCurrentIndex([c for c, _n in LANG_NAMES].index(LANG))
+        lang.currentIndexChanged.connect(
+            lambda i: self._set_language(lang.itemData(i)))
+        form.addRow(tr("표시 언어"), lang)
+
         mode = QComboBox()
-        mode.addItem("숨은 창 (작업 표시줄·Alt+Tab 에서 제외)", "hidden")
-        mode.addItem("위장 창 (다른 제목으로 표시)", "disguise")
-        mode.addItem("보통 창", "normal")
+        mode.addItem(tr("숨은 창 (작업 표시줄·Alt+Tab 에서 제외)"), "hidden")
+        mode.addItem(tr("위장 창 (다른 제목으로 표시)"), "disguise")
+        mode.addItem(tr("보통 창"), "normal")
         mode.setCurrentIndex(["hidden", "disguise", "normal"].index(
             s["window_mode"]))
         mode.currentIndexChanged.connect(
             lambda i: self._set_window_mode(mode.itemData(i)))
-        form.addRow("창 모드", mode)
+        form.addRow(tr("창 모드"), mode)
 
         title = QLineEdit(s["disguise_title"])
         title.textChanged.connect(self._set_title)
-        form.addRow("위장 제목", title)
+        form.addRow(tr("위장 제목"), title)
 
-        blur = QCheckBox("포커스를 잃으면 자동으로 숨기기")
+        blur = QCheckBox(tr("포커스를 잃으면 자동으로 숨기기"))
         blur.setChecked(bool(s["hide_on_blur"]))
         blur.toggled.connect(lambda on: self._set_flag("hide_on_blur", on))
         form.addRow(blur)
 
-        pause = QCheckBox("숨길 때 자동 일시정지")
+        pause = QCheckBox(tr("숨길 때 자동 일시정지"))
         pause.setChecked(bool(s["pause_on_hide"]))
         pause.toggled.connect(lambda on: self._set_flag("pause_on_hide", on))
         form.addRow(pause)
@@ -3670,12 +4086,12 @@ class SettingsDialog(QDialog):
         picker = QComboBox()
         keys = list(GAMES)
         for k in keys:
-            picker.addItem(GAMES[k].label, k)
+            picker.addItem(tr(GAMES[k].label), k)
         picker.setCurrentIndex(keys.index(self.w.cfg.game))
         picker.setEnabled(len(keys) > 1)
         picker.currentIndexChanged.connect(
             lambda i: self._pick_game(picker.itemData(i)))
-        form.addRow("게임", picker)
+        form.addRow(tr("게임"), picker)
 
         speed = QDoubleSpinBox()
         speed.setRange(0.3, 3.0)
@@ -3683,11 +4099,20 @@ class SettingsDialog(QDialog):
         speed.setValue(float(self.w.cfg.s["speed"]))
         speed.setSuffix(" ×")
         speed.valueChanged.connect(lambda v: self._set_game("speed", v))
-        form.addRow("낙하 속도", speed)
+        form.addRow(tr("낙하 속도"), speed)
 
         outer.addWidget(head)
         outer.addWidget(self.w.cfg.spec.settings_tab(self), 1)
         return page
+
+    def _set_language(self, code):
+        if code == LANG:
+            return
+        self.w.cfg.s["lang"] = set_language(code)
+        self.w.retranslate()
+        self.w.schedule_save()
+        # 이미 만들어 둔 글은 그대로라, 설정 창은 닫고 다시 열게 한다
+        self.accept()
 
     def _pick_game(self, key):
         if key == self.w.cfg.game:
@@ -3706,28 +4131,28 @@ class SettingsDialog(QDialog):
         inner = QWidget()
         form = QFormLayout(inner)
 
-        form.addRow(QLabel("<b>앱 단축키</b> (창이 활성일 때)"))
+        form.addRow(QLabel(tr("<b>앱 단축키</b> (창이 활성일 때)")))
         for action_id, label, default in LOCAL_ACTIONS:
             if not self.w.action_available(action_id):
                 continue          # 지금 게임에 없는 조작은 보여 주지 않는다
             row = ShortcutRow(action_id, default,
                               self.w.cfg.keys.get(action_id, default))
             row.changed.connect(self._key_changed)
-            form.addRow(label, row)
+            form.addRow(tr(label), row)
 
-        form.addRow(QLabel("<b>전역 핫키</b> (다른 창에 있어도 동작 · 수식키 필수)"))
+        form.addRow(QLabel(tr("<b>전역 핫키</b> (다른 창에 있어도 동작 · 수식키 필수)")))
         for action_id, label, default in GLOBAL_ACTIONS:
             if not self.w.action_available(action_id):
                 continue
             row = ShortcutRow(action_id, default,
                               self.w.cfg.keys.get(action_id, default))
             row.changed.connect(self._key_changed)
-            form.addRow(label, row)
+            form.addRow(tr(label), row)
 
         area.setWidget(inner)
         outer.addWidget(area)
 
-        reset = QPushButton("모든 키를 기본값으로")
+        reset = QPushButton(tr("모든 키를 기본값으로"))
         reset.clicked.connect(self._reset_keys)
         outer.addWidget(reset)
         return page
@@ -3740,7 +4165,7 @@ class SettingsDialog(QDialog):
 
     def _pick_color(self, button):
         c = QColorDialog.getColor(QColor(self.w.cfg.s["bg_color"]), self,
-                                  "배경색")
+                                  tr("배경색"))
         if c.isValid():
             self.w.cfg.s["bg_color"] = c.name()
             button.setText(c.name())
@@ -3787,7 +4212,7 @@ class SettingsDialog(QDialog):
             if g.score == 0 and g.board_empty():
                 g.reset()
             else:
-                self.w.flash("색 수는 다음 게임부터 적용됩니다")
+                self.w.flash(tr("색 수는 다음 게임부터 적용됩니다"))
         self.w.board.update()
 
     def _key_changed(self, action_id, seq_text):
@@ -3802,7 +4227,7 @@ class SettingsDialog(QDialog):
         self.w.rebuild_keymap()
         self.w.apply_global_hotkeys()
         self.w.schedule_save()
-        self.w.flash("단축키를 기본값으로 되돌렸습니다 — 설정을 다시 열면 반영됩니다")
+        self.w.flash(tr("단축키를 기본값으로 되돌렸습니다 — 설정을 다시 열면 반영됩니다"))
 
 
 # ================================================================ 메인 창
@@ -3830,7 +4255,7 @@ class PuyoWindow(QWidget):
         # -------------------------------------------------------- 상단바
         self.topbar = QWidget(self)
         self.topbar.setFixedHeight(20)
-        self.info_label = QLabel("Esc 숨기기 · Ctrl+Alt+Z 복귀")
+        self.info_label = QLabel(tr("Esc 숨기기 · Ctrl+Alt+Z 복귀"))
         self.info_label.setMouseTracking(True)
         # QLabel 기본값(LinksAccessibleByMouse)이 마우스를 삼켜 그 위에서는
         # 창을 끌 수 없게 된다. 글자는 읽기용이니 마우스를 통과시킨다.
@@ -3843,9 +4268,9 @@ class PuyoWindow(QWidget):
 
         self.buttons = {}
         for kind, tip, slot in (
-                ("restart", "새 게임 (F2 / R)", self.new_game),
-                ("settings", "설정 (F1)", self.open_settings),
-                ("hide", "숨기기 (Esc / Ctrl+Alt+Z)", self.panic_hide)):
+                ("restart", tr("새 게임 (F2 / R)"), self.new_game),
+                ("settings", tr("설정 (F1)"), self.open_settings),
+                ("hide", tr("숨기기 (Esc / Ctrl+Alt+Z)"), self.panic_hide)):
             btn = QPushButton()
             btn.setFlat(True)
             btn.setFixedSize(20, 18)
@@ -3969,6 +4394,27 @@ class PuyoWindow(QWidget):
     GLOBAL_VERB_ALIAS = {"g_left": "left", "g_right": "right", "g_soft": "soft",
                          "g_rot": "rot_cw", "g_hard": "hard", "g_hold": "hold"}
 
+    def retranslate(self):
+        """언어를 바꾼 뒤, 한 번 만들어 두고 계속 쓰는 글을 다시 만든다.
+
+        매 틱 새로 그리는 것(판·점수 칸·상단바)은 그냥 두면 알아서 바뀐다.
+        트레이 메뉴와 버튼 설명처럼 한 번만 만드는 것들만 손보면 된다.
+        """
+        for kind, tip in (("restart", "새 게임 (F2 / R)"),
+                          ("settings", "설정 (F1)"),
+                          ("hide", "숨기기 (Esc / Ctrl+Alt+Z)")):
+            if kind in self.buttons:
+                self.buttons[kind].setToolTip(tr(tip))
+        old = self.tray_menu
+        self.tray.setContextMenu(None)
+        self._build_tray_menu()
+        old.deleteLater()
+        self.note_hotkey_status()
+        self._update_stats()
+        self.board.update()
+        if self.next_view is not None:
+            self.next_view.update()
+
     def _apply_mouse_mode(self):
         """필드가 마우스를 받을지 정한다.
 
@@ -4008,8 +4454,8 @@ class PuyoWindow(QWidget):
             "cell_up": lambda: self.bump_cell(+2),
             "cell_down": lambda: self.bump_cell(-2),
             "toggle_top": self.toggle_on_top,
-            "toggle_panel": lambda: self.toggle_part("show_panel", "사이드 패널"),
-            "toggle_topbar": lambda: self.toggle_part("show_topbar", "상단바"),
+            "toggle_panel": lambda: self.toggle_part("show_panel", tr("사이드 패널")),
+            "toggle_topbar": lambda: self.toggle_part("show_topbar", tr("상단바")),
             # 전역 전용
             "g_hide": self.toggle_visible,
             "g_restart": self.new_game,
@@ -4050,7 +4496,7 @@ class PuyoWindow(QWidget):
         self.handlers = self._handlers()
 
     def key_hint(self, action_id):
-        return (self.cfg.keys.get(action_id) or "").strip() or "(없음)"
+        return (self.cfg.keys.get(action_id) or "").strip() or tr("(없음)")
 
     def keyPressEvent(self, event):
         combo = int(event.modifiers() & MOD_MASK) | int(event.key())
@@ -4078,8 +4524,8 @@ class PuyoWindow(QWidget):
         self._hotkey_failures = failed
         self.note_hotkey_status()
         if failed:
-            self.flash("전역 키 등록 실패: "
-                       + ", ".join(ACTION_LABELS[a] for a in failed))
+            self.flash(tr("전역 키 등록 실패: ")
+                       + ", ".join(tr(ACTION_LABELS[a]) for a in failed))
 
     def on_global_hotkey(self, hotkey_id):
         action_id = self.hotkeys.action_for(hotkey_id)
@@ -4106,15 +4552,22 @@ class PuyoWindow(QWidget):
 
     def _build_tray(self):
         self.tray = QSystemTrayIcon(self._make_icon(), self)
+        self._build_tray_menu()
+        self.tray.activated.connect(self._tray_activated)
+        self.tray.show()
+        self._sync_tray_menu()
+        self.note_hotkey_status()
+
+    def _build_tray_menu(self):
         menu = QMenu()
-        menu.addAction("보이기 / 숨기기", self.toggle_visible)
+        menu.addAction(tr("보이기 / 숨기기"), self.toggle_visible)
 
         # 창을 꺼내지 않고도 트레이에서 바로 게임을 고를 수 있게 한다
         self.tray_game_acts = {}
         if len(GAMES) > 1:
-            sub = menu.addMenu("게임")
+            sub = menu.addMenu(tr("게임"))
             for key, spec in GAMES.items():
-                act = sub.addAction(spec.label,
+                act = sub.addAction(tr(spec.label),
                                     lambda checked=False, k=key: self.switch_game(k))
                 act.setCheckable(True)
                 self.tray_game_acts[key] = act
@@ -4122,18 +4575,18 @@ class PuyoWindow(QWidget):
         else:
             self.tray_game_menu = None
 
-        menu.addAction("새 게임 / 재시작", self.new_game)
-        menu.addAction("설정…", self.open_settings)
+        menu.addAction(tr("새 게임 / 재시작"), self.new_game)
+        menu.addAction(tr("설정…"), self.open_settings)
         menu.addSeparator()
-        menu.addAction("종료", self.quit_app)
+        menu.addAction(tr("종료"), self.quit_app)
         # 열릴 때마다 지금 게임에 체크를 다시 찍는다 (메뉴는 한 번만 만든다)
         menu.aboutToShow.connect(self._sync_tray_menu)
+        menu.setStyleSheet(menu_stylesheet(self.cfg.s["bg_color"]))
+        if self.tray_game_menu is not None:
+            self.tray_game_menu.setStyleSheet(
+                menu_stylesheet(self.cfg.s["bg_color"]))
         self.tray_menu = menu
         self.tray.setContextMenu(menu)
-        self.tray.activated.connect(self._tray_activated)
-        self.tray.show()
-        self._sync_tray_menu()
-        self.note_hotkey_status()
 
     def _sync_tray_menu(self):
         for key, act in self.tray_game_acts.items():
@@ -4150,7 +4603,7 @@ class PuyoWindow(QWidget):
             seq = (self.cfg.keys.get(action_id) or "").strip()
             if not seq:
                 continue
-            mark = "  (등록 실패)" if action_id in self._hotkey_failures else ""
+            mark = tr("  (등록 실패)") if action_id in self._hotkey_failures else ""
             rows.append("%s : %s%s" % (seq, label, mark))
         self.tray.setToolTip(chr(10).join(rows))
 
@@ -4261,7 +4714,7 @@ class PuyoWindow(QWidget):
         self.cfg.s["opacity"] = value
         self.setWindowOpacity(value)
         if not from_dialog:
-            self.flash("투명도 %d%%" % round(value * 100))
+            self.flash(tr("투명도 %d%%") % round(value * 100))
         self.schedule_save()
 
     def bump_opacity(self, delta):
@@ -4270,7 +4723,7 @@ class PuyoWindow(QWidget):
     def bump_cell(self, delta):
         self.cfg.s["cell"] = max(12, min(48, int(self.cfg.s["cell"]) + delta))
         self.resync_size()
-        self.flash("셀 %dpx" % self.cfg.s["cell"])
+        self.flash(tr("셀 %dpx") % self.cfg.s["cell"])
         self.schedule_save()
 
     def toggle_bg(self):
@@ -4279,10 +4732,10 @@ class PuyoWindow(QWidget):
         if int(s["bg_alpha"]) > 0:
             self._bg_backup = int(s["bg_alpha"])
             s["bg_alpha"] = 0
-            self.flash("배경 지우기 ON")
+            self.flash(tr("배경 지우기 ON"))
         else:
             s["bg_alpha"] = getattr(self, "_bg_backup", COMMON_DEFAULTS["bg_alpha"])
-            self.flash("배경 지우기 OFF")
+            self.flash(tr("배경 지우기 OFF"))
         self.apply_style()
         self.schedule_save()
 
@@ -4295,7 +4748,7 @@ class PuyoWindow(QWidget):
     def toggle_on_top(self):
         self.cfg.s["always_on_top"] = not self.cfg.s["always_on_top"]
         self.apply_window_mode()
-        self.flash("항상 위 " + ("ON" if self.cfg.s["always_on_top"] else "OFF"))
+        self.flash(tr("항상 위 ") + ("ON" if self.cfg.s["always_on_top"] else "OFF"))
         self.schedule_save()
 
     # --------------------------------------------------------- 창 모드/플래그
@@ -4352,13 +4805,13 @@ class PuyoWindow(QWidget):
             self.raise_()
             self.activateWindow()
             if self.paused:
-                self.flash("%s 로 재개" % self.key_hint("pause"))
+                self.flash(tr("%s 로 재개") % self.key_hint("pause"))
 
     def toggle_pause(self):
         if self.game.over:
             return
         self.paused = not self.paused
-        self.flash("일시정지" if self.paused else "재개")
+        self.flash(tr("일시정지") if self.paused else tr("재개"))
         self.board.update()
 
     def changeEvent(self, event):
@@ -4431,7 +4884,7 @@ class PuyoWindow(QWidget):
         self.paused = (not self.isVisible()) and bool(self.cfg.s["pause_on_hide"])
         self.rebuild_keymap()
         self.resync_size()
-        self.flash("%s 시작" % self.spec.label)
+        self.flash(tr("%s 시작") % tr(self.spec.label))
         self.schedule_save()
 
     def new_game(self):
@@ -4441,7 +4894,7 @@ class PuyoWindow(QWidget):
         self.game.reset()
         # 숨어 있는 동안 전역 키로 재시작했다면 그대로 얼려 둔다
         self.paused = (not self.isVisible()) and bool(self.cfg.s["pause_on_hide"])
-        self.flash("새 게임")
+        self.flash(tr("새 게임"))
         self.board.update()
 
     def _update_stats(self):
@@ -4480,47 +4933,47 @@ class PuyoWindow(QWidget):
         menu = QMenu(self)
         menu.setStyleSheet(menu_stylesheet(s["bg_color"]))
 
-        menu.addAction("새 게임\t%s / %s" % (self.key_hint("new_game"),
+        menu.addAction(tr("새 게임\t%s / %s") % (self.key_hint("new_game"),
                                           self.key_hint("restart")),
                        self.new_game)
-        menu.addAction(("재개" if self.paused else "일시정지")
+        menu.addAction((tr("재개") if self.paused else tr("일시정지"))
                        + "\t%s" % self.key_hint("pause"), self.toggle_pause)
         if len(GAMES) > 1:
-            sub = menu.addMenu("게임")
+            sub = menu.addMenu(tr("게임"))
             for key, spec in GAMES.items():
-                act = sub.addAction(spec.label,
+                act = sub.addAction(tr(spec.label),
                                     lambda k=key: self.switch_game(k))
                 act.setCheckable(True)
                 act.setChecked(key == self.cfg.game)
             sub.setStyleSheet(menu_stylesheet(s["bg_color"]))
         menu.addSeparator()
 
-        act_bg = menu.addAction("배경 지우기\t%s" % self.key_hint("toggle_bg"),
+        act_bg = menu.addAction(tr("배경 지우기\t%s") % self.key_hint("toggle_bg"),
                                 self.toggle_bg)
         act_bg.setCheckable(True)
         act_bg.setChecked(int(s["bg_alpha"]) == 0)
 
-        act_top = menu.addAction("항상 위\t%s" % self.key_hint("toggle_top"),
+        act_top = menu.addAction(tr("항상 위\t%s") % self.key_hint("toggle_top"),
                                  self.toggle_on_top)
         act_top.setCheckable(True)
         act_top.setChecked(bool(s["always_on_top"]))
 
-        act_panel = menu.addAction("사이드 패널\t%s" % self.key_hint("toggle_panel"),
-                                   lambda: self.toggle_part("show_panel", "사이드 패널"))
+        act_panel = menu.addAction(tr("사이드 패널\t%s") % self.key_hint("toggle_panel"),
+                                   lambda: self.toggle_part("show_panel", tr("사이드 패널")))
         act_panel.setCheckable(True)
         act_panel.setChecked(bool(s["show_panel"]))
 
-        act_bar = menu.addAction("상단바\t%s" % self.key_hint("toggle_topbar"),
-                                 lambda: self.toggle_part("show_topbar", "상단바"))
+        act_bar = menu.addAction(tr("상단바\t%s") % self.key_hint("toggle_topbar"),
+                                 lambda: self.toggle_part("show_topbar", tr("상단바")))
         act_bar.setCheckable(True)
         act_bar.setChecked(bool(s["show_topbar"]))
 
         menu.addSeparator()
-        menu.addAction("설정…\t%s" % self.key_hint("settings"), self.open_settings)
-        menu.addAction("숨기기\t%s / %s" % (self.key_hint("hide"),
+        menu.addAction(tr("설정…\t%s") % self.key_hint("settings"), self.open_settings)
+        menu.addAction(tr("숨기기\t%s / %s") % (self.key_hint("hide"),
                                           self.key_hint("g_hide")),
                        self.panic_hide)
-        menu.addAction("종료\t%s" % self.key_hint("g_quit"), self.quit_app)
+        menu.addAction(tr("종료\t%s") % self.key_hint("g_quit"), self.quit_app)
         menu.exec_(global_pos)
 
     def open_settings(self):
@@ -4627,6 +5080,7 @@ def main():
     QLocalServer.removeServer(IPC_KEY)
 
     cfg = Config()
+    set_language(cfg.s.get("lang", "ko"))
     window = PuyoWindow(cfg)
 
     server = QLocalServer(app)
