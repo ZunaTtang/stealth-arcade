@@ -11,13 +11,13 @@ Single file, single dependency (PyQt5). No install, no account, no network.
 
 > 한국어 설명: [README.ko.md](README.ko.md)
 
-![Sudoku floating over a document with its background erased](docs/stealth.png)
+![Playing over a document, then hiding with Esc and coming back](docs/hide.gif)
 
-*Background erased. The board is drawn straight onto the desktop over whatever is
-behind it — and the grid stays readable because the helper lines adapt to a light
-backdrop.*
+![All four games running with their background erased](docs/stealth-games.png)
 
-![Puyo Puyo, Tetris, Sudoku and Minesweeper](docs/games.png)
+*Every shot above is the real app with its background alpha at zero — the boards
+are drawn straight over whatever is behind them, and stay readable because the
+helper lines adapt to a light backdrop.*
 
 ---
 
@@ -43,7 +43,7 @@ pip install PyQt5
 ```
 
 ```bash
-python stealth_puyo.py
+python stealth_arcade.py
 ```
 
 Windows only — the global hotkeys use the Win32 `RegisterHotKey` API.
@@ -117,7 +117,9 @@ Ctrl+R           menu (right-click the window works too)
 Ctrl+B           erase background
 Ctrl+G           grid lines on/off
 Ctrl+wheel       opacity
+Ctrl+= / Ctrl+-  window size  (Ctrl+Up / Ctrl+Down also work)
 Alt+drag         move the window from anywhere, including the board
+drag an edge     resize — the window snaps to whole cells as you drag
 ```
 
 Global — these work while another application has focus:
@@ -174,7 +176,7 @@ Produces `dist\Notepad.exe` — one file, no console, ~24 MB. The script kills a
 running copy first (matched by path, so your real Notepad is safe), then builds
 from `Notepad.spec`, which drops the Qt modules this app never loads.
 
-Always build from the spec. Handing `stealth_puyo.py` to PyInstaller directly makes
+Always build from the spec. Handing `stealth_arcade.py` to PyInstaller directly makes
 it overwrite `Notepad.spec` and the exe goes back to 40 MB.
 
 ## How it is put together

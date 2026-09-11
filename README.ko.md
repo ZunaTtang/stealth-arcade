@@ -15,7 +15,7 @@ pip install PyQt5
 ```
 
 ```bash
-python stealth_puyo.py
+python stealth_arcade.py
 ```
 
 ---
@@ -333,6 +333,10 @@ Ctrl+J        상단바
     꺼도 **판 테두리·스도쿠의 3x3 구분선·뿌요의 위험 줄 경계는 남는다** —
     이것들이 없으면 판 구실을 못 한다. 진하기는 따로 조절한다. 진하기를 0 까지
     내려 둔 채 껐다 켜면 켜도 안 보이므로, 켤 때 보이는 값으로 올려 준다.
+  · **창 크기** — `Ctrl+=` / `Ctrl+-` (`Ctrl+↑` / `Ctrl+↓` 도 같다), 또는
+    **창 가장자리·모서리를 끌어서**. 창은 셀 크기에서 곧바로 재단하므로 임의의
+    픽셀로 늘어나지는 않고, 끈 길이에 가장 가까운 셀 크기로 맞춘다. 잡지 않은
+    쪽 모서리는 제자리에 남는다. 가장자리에 커서를 얹으면 모양이 바뀐다.
   · **Ctrl+휠** — 창 투명도. 수식키를 걸어 두었다 — 그냥 휠에 걸면 창 위에서
     무심코 스크롤한 것만으로 화면이 사라질 만큼 투명해진다.
   · 상단바 아이콘은 왼쪽부터 **일시정지/재개** · 재시작 · 설정 · 숨기기이고,
@@ -458,7 +462,7 @@ OpenGL 21MB, QML/Quick, OpenSSL)을 걷어내 40MB → 24MB 로 줄여 둔 것�
 python -m PyInstaller --noconfirm Notepad.spec
 ```
 
-**반드시 spec 으로 빌드한다.** `stealth_puyo.py` 를 PyInstaller 에 직접 넘기면
+**반드시 spec 으로 빌드한다.** `stealth_arcade.py` 를 PyInstaller 에 직접 넘기면
 PyInstaller 가 `Notepad.spec` 을 새로 만들어 덮어쓴다. 그러면 위 설정이 전부
 사라져 결과물이 40MB 로 돌아가고 스펙의 주석과 목록도 날아간다. `build.bat` 도
 spec 을 쓰도록 해 두었다.

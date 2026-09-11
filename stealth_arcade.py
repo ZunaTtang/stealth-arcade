@@ -3,8 +3,8 @@
 Stealth Arcade  -  Windows / PyQt5 단일 파일 퍼즐 모음
 
 설치 :  pip install PyQt5
-실행 :  python stealth_puyo.py
-빌드 :  pyinstaller --noconfirm --onefile --windowed --name Notepad stealth_puyo.py
+실행 :  python stealth_arcade.py
+빌드 :  pyinstaller --noconfirm --onefile --windowed --name Notepad stealth_arcade.py
 
 설정 저장 위치 : %APPDATA%\\StealthPuyo\\config.json
 
@@ -172,6 +172,8 @@ LOCAL_ACTIONS = [
     ("opacity_down",   "더 투명하게",       "Ctrl+["),
     ("cell_up",        "화면 크게",         "Ctrl+Up"),
     ("cell_down",      "화면 작게",         "Ctrl+Down"),
+    ("cell_up2",       "화면 크게 (보조)",  "Ctrl+="),
+    ("cell_down2",     "화면 작게 (보조)",  "Ctrl+-"),
     ("toggle_top",     "항상 위 토글",      "Ctrl+T"),
     ("toggle_panel",   "사이드 패널 토글",  "Ctrl+H"),
     ("toggle_topbar",  "상단바 토글",       "Ctrl+J"),
@@ -493,6 +495,8 @@ TR = {
     "더 진하게": "More opaque",
     "더 투명하게": "More transparent",
     "화면 크게": "Bigger",
+    "화면 크게 (보조)": "Bigger (alt)",
+    "화면 작게 (보조)": "Smaller (alt)",
     "화면 작게": "Smaller",
     "항상 위 토글": "Toggle always on top",
     "사이드 패널 토글": "Toggle side panel",
@@ -5414,6 +5418,7 @@ class PuyoWindow(QWidget):
         super().__init__()
         self.cfg = cfg
         self.paused = False
+        self._resize_edge = None      # 크기 조절 중 잡고 있는 가장자리
         self._drag_last = None        # 드래그 중 마지막 전역 좌표
         self._drag_from = None        # 드래그를 시작한 전역 좌표
         self._dragging = False
@@ -5639,6 +5644,8 @@ class PuyoWindow(QWidget):
             "opacity_down": lambda: self.bump_opacity(-0.05),
             "cell_up": lambda: self.bump_cell(+2),
             "cell_down": lambda: self.bump_cell(-2),
+            "cell_up2": lambda: self.bump_cell(+2),
+            "cell_down2": lambda: self.bump_cell(-2),
             "toggle_top": self.toggle_on_top,
             "toggle_panel": lambda: self.toggle_part("show_panel", tr("사이드 패널")),
             "toggle_topbar": lambda: self.toggle_part("show_topbar", tr("상단바")),
@@ -5660,7 +5667,7 @@ class PuyoWindow(QWidget):
     # 일시정지 중에도 받아야 하는 동작 — 나머지 조작키는 막는다
     ALWAYS_ON = {"pause", "new_game", "restart", "hide", "settings", "menu",
                  "toggle_bg", "toggle_grid", "opacity_up", "opacity_down",
-                 "cell_up",
+                 "cell_up", "cell_up2", "cell_down2",
                  "cell_down", "toggle_top", "toggle_panel", "toggle_topbar",
                  "g_hide", "g_restart", "g_bg", "g_pause", "g_quit"}
 
@@ -6347,18 +6354,100 @@ class PuyoWindow(QWidget):
 
     MID_GAP = 4                   # 보드와 사이드 패널 사이 간격
 
+    # --------------------------------------------------------- 창 크기 조절
+    # 창은 셀 크기에서 곧바로 재단한다(resync_size). 그래서 임의의 픽셀로 늘릴
+    # 수는 없고, 가장자리를 끌면 그 길이에 가장 가까운 셀 크기로 맞춘다.
+    EDGE = 6                      # 가장자리로 치는 폭 (px)
+
+    def edge_at(self, pos):
+        """창 안 좌표가 어느 가장자리인가. (왼, 위, 오른, 아래) 불리언."""
+        x, y, w, h = pos.x(), pos.y(), self.width(), self.height()
+        e = self.EDGE
+        return (x <= e, y <= e, x >= w - 1 - e, y >= h - 1 - e)
+
+    @staticmethod
+    def edge_cursor(edge):
+        left, top, right, bottom = edge
+        if (left and top) or (right and bottom):
+            return Qt.SizeFDiagCursor
+        if (right and top) or (left and bottom):
+            return Qt.SizeBDiagCursor
+        if left or right:
+            return Qt.SizeHorCursor
+        if top or bottom:
+            return Qt.SizeVerCursor
+        return None
+
+    def begin_resize(self, pos):
+        edge = self.edge_at(pos)
+        if not any(edge):
+            return False
+        self._resize_edge = edge
+        self._resize_from = self.frameGeometry()
+        self._resize_cell = int(self.cfg.s["cell"])
+        return True
+
+    def do_resize(self, global_pos):
+        """끈 만큼을 셀 크기로 바꾼다. 잡지 않은 쪽 모서리는 제자리에 둔다."""
+        left, top, right, bottom = self._resize_edge
+        g = self._resize_from
+        dx = global_pos.x() - (g.left() if left else g.right())
+        dy = global_pos.y() - (g.top() if top else g.bottom())
+        want_w = g.width() + (-dx if left else dx)
+        want_h = g.height() + (-dy if top else dy)
+
+        # 가로·세로 중 더 많이 끈 쪽을 따른다. 모서리를 비스듬히 끌면
+        # 둘 중 큰 변화가 이긴다.
+        ratios = []
+        if left or right:
+            ratios.append(want_w / max(1.0, float(g.width())))
+        if top or bottom:
+            ratios.append(want_h / max(1.0, float(g.height())))
+        ratio = max(ratios, key=lambda r: abs(r - 1.0))
+        cell = int(round(self._resize_cell * ratio))
+        cell = max(12, min(48, cell))
+        if cell != int(self.cfg.s["cell"]):
+            self.cfg.s["cell"] = cell
+            self.resync_size()
+
+        # 잡지 않은 모서리를 붙들어 둔다 — 안 그러면 창이 커질 때마다 달아난다
+        x = g.right() - self.width() + 1 if left else g.left()
+        y = g.bottom() - self.height() + 1 if top else g.top()
+        self.move(x, y)
+
+    def end_resize(self):
+        self._resize_edge = None
+        self.move(self.sane_pos(self.x(), self.y()))
+        self.flash(tr("셀 %dpx") % self.cfg.s["cell"])
+        self.schedule_save()
+
     # ------------------------------------------------------- 창 끌어 옮기기
     DRAG_SLOP = 3                 # 이만큼 끌기 전에는 창을 움직이지 않는다
 
     def mousePressEvent(self, event):
-        """본문 어디를 잡아도 창을 옮길 수 있다 (상단바 아이콘은 제외)."""
+        """본문 어디를 잡아도 창을 옮길 수 있다 (상단바 아이콘은 제외).
+
+        가장자리를 잡으면 옮기기가 아니라 크기 조절이다.
+        """
         if event.button() == Qt.LeftButton:
+            if self.begin_resize(event.pos()):
+                event.accept()
+                return
             self._drag_last = event.globalPos()
             self._drag_from = event.globalPos()
             self._dragging = False
             event.accept()
 
     def mouseMoveEvent(self, event):
+        if self._resize_edge is not None:
+            if event.buttons() & Qt.LeftButton:
+                self.do_resize(event.globalPos())
+                event.accept()
+            return
+        if not (event.buttons() & Qt.LeftButton):
+            # 누르지 않고 지나갈 때는 가장자리에서 커서만 바꿔 준다
+            shape = self.edge_cursor(self.edge_at(event.pos()))
+            self.setCursor(shape if shape else Qt.ArrowCursor)
         if self._drag_last is None or not (event.buttons() & Qt.LeftButton):
             return
         if not self._dragging:
@@ -6374,6 +6463,10 @@ class PuyoWindow(QWidget):
         event.accept()
 
     def mouseReleaseEvent(self, event):
+        if self._resize_edge is not None:
+            self.end_resize()
+            event.accept()
+            return
         if self._drag_last is not None:
             self._drag_last = None
             if self._dragging:

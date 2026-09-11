@@ -1,0 +1,7 @@
+# cmd 는 .bat 를 CRLF 로만 제대로 읽는다. LF 로 체크아웃되면 줄이 엉켜
+# "'tinue'은(는) 내부 또는 외부 명령..." 같은 오류가 난다.
+*.bat text eol=crlf
+
+# 스크린샷은 바이너리 — 줄바꿈 변환 금지
+*.png binary
+*.gif binary

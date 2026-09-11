@@ -52,7 +52,7 @@ def keep(entry):
 
 
 a = Analysis(
-    ['stealth_puyo.py'],
+    ['stealth_arcade.py'],
     pathex=[],
     binaries=[],
     datas=[],
