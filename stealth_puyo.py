@@ -152,6 +152,9 @@ LOCAL_ACTIONS = [
     ("num_7",          "숫자 7 넣기",       "7"),
     ("num_8",          "숫자 8 넣기",       "8"),
     ("num_9",          "숫자 9 넣기",       "9"),
+    ("reveal",         "칸 열기",           "Space"),
+    ("flag",           "깃발 꽂기",         "F"),
+    ("chord",          "주변 한꺼번에",     "D"),
     ("note",           "메모 모드",         "N"),
     ("erase",          "지우기",            "Delete"),
     ("erase2",         "지우기 (보조)",     "Backspace"),
@@ -372,6 +375,45 @@ TR = {
     "제한 없음": "No limit",
     "%d번": "%d",
     "이어서 풀기": "Resuming",
+    # ---- 지뢰찾기 ----
+    "지뢰찾기": "Minesweeper",
+    "초급": "Beginner",
+    "중급": "Intermediate",
+    "고급": "Expert",
+    "칸 열기": "Reveal cell",
+    "깃발 꽂기": "Place flag",
+    "주변 한꺼번에": "Clear around",
+    "물음표 표시 쓰기": "Use question marks",
+    "%s (%dx%d, 지뢰 %d)": "%s (%dx%d, %d mines)",
+    "지뢰!": "Mine!",
+    "클리어!": "Cleared!",
+    "지뢰를 밟았다": "You hit a mine",
+    "%s / %s 새 게임": "%s / %s for a new game",
+    "걸린 시간 %s초": "Cleared in %ss",
+    "최고 %d초": "Best %ds",
+    "%d초": "%ds",
+    "%s초 · 남은 지뢰 %d": "%ss · %d mines left",
+    "시간<br><b>%s초</b>": "Time<br><b>%ss</b>",
+    "걸린 시간<br><b>%s초</b>": "Cleared in<br><b>%ss</b>",
+    "<b>%s초</b><br>%s<br><br>지뢰 <b>%d</b><br>깃발 <b>%d</b>"
+    "<br>최고 <b>%s</b>":
+        "<b>%ss</b><br>%s<br><br>Mines <b>%d</b><br>Flags <b>%d</b>"
+        "<br>Best <b>%s</b>",
+    "%s<br><br>난이도<br><b>%s</b><br><br>남은 지뢰 <b>%d</b>"
+    "<br>꽂은 깃발 <b>%d</b><br>연 칸 <b>%d</b>/%d<br><br>최고 기록<br><b>%s</b>":
+        "%s<br><br>Difficulty<br><b>%s</b><br><br>Mines left <b>%d</b>"
+        "<br>Flags <b>%d</b><br>Opened <b>%d</b>/%d<br><br>Best time<br><b>%s</b>",
+    "원작 규칙 그대로다. 왼쪽 클릭으로 열고 오른쪽 클릭으로 깃발을 꽂는다.\n"
+    "숫자 칸에서 양쪽 버튼(또는 가운데 버튼)을 누르면 주변이 한꺼번에 열린다.\n"
+    "꽂아 둔 깃발 수가 그 숫자와 같을 때만 열리고, 깃발이 틀렸으면 터진다.\n"
+    "첫 칸은 절대 지뢰가 아니다.\n"
+    "난이도를 바꾸면 다음 게임부터 적용된다 (F2 / R 로 새 게임).":
+        "The original rules. Left click reveals, right click places a flag.\n"
+        "On a numbered cell, press both buttons (or the middle button) to clear\n"
+        "around it. That only opens when the flags you placed match the number,\n"
+        "and if a flag is wrong it blows up.\n"
+        "The first cell is never a mine.\n"
+        "A new difficulty applies to the next game (F2 / R for a new one).",
     "격자선 보이기": "Show grid",
     "배경이 옅을 때 또렷하게": "Sharpen on see-through background",
     "끄면 보조선과 받침 없이 예전처럼 그린다.":
@@ -4272,6 +4314,597 @@ SUDOKU = register_game(GameSpec(
 ))
 
 
+# ================================================================= 지뢰찾기
+# 원작(윈도우 지뢰찾기)의 규칙과 조작을 그대로 옮겼다.
+#
+#   · 난이도 세 단계 — 초급 9x9/10, 중급 16x16/40, 고급 30x16/99
+#   · 왼쪽 클릭으로 열고, 오른쪽 클릭으로 깃발 -> 물음표 -> 해제
+#   · 숫자 칸에서 양쪽 버튼(또는 가운데 버튼)으로 주변 한꺼번에 열기
+#   · 0 이면 주변이 줄줄이 열린다
+#   · 첫 칸은 절대 지뢰가 아니다
+#   · 남은 지뢰 수 = 지뢰 - 깃발 (원작처럼 음수까지 내려간다)
+#   · 다 열면 남은 지뢰에 깃발이 자동으로 꽂히고 시간이 멈춘다
+#   · 지뢰를 밟으면 밟은 칸이 빨갛게, 나머지 지뢰가 모두 드러나고
+#     잘못 꽂은 깃발에는 X 가 그려진다
+MINE_LEVELS = [
+    # key,            라벨,     가로, 세로, 지뢰
+    ("beginner",     "초급", 9, 9, 10),
+    ("intermediate", "중급", 16, 16, 40),
+    ("expert",       "고급", 30, 16, 99),
+]
+MINE_LEVEL_KEYS = [k for k, _l, _w, _h, _m in MINE_LEVELS]
+MINE_LEVEL_LABEL = {k: l for k, l, _w, _h, _m in MINE_LEVELS}
+MINE_LEVEL_INFO = {k: (w, h, m) for k, _l, w, h, m in MINE_LEVELS}
+
+# 칸 상태
+MINE_HIDDEN = 0
+MINE_OPEN = 1
+MINE_FLAG = 2
+MINE_QUESTION = 3
+
+# 원작의 숫자 색을 그대로 쓴다. 다만 원작은 밝은 회색 판이라 4(남색)·7(검정)
+# 이 이 앱의 어두운 판에서는 안 보인다. 그 둘만 같은 계열의 밝은 쪽으로
+# 올렸다 — 색이 주는 뜻(몇 번인지 색으로 외운 기억)은 그대로 남는다.
+MINE_NUM_COLORS = {
+    1: "#4f9bff",   # 원작 파랑 (#0000ff) — 어두운 판에 맞게 밝게
+    2: "#3fbf5f",   # 초록 (#008000)
+    3: "#ff6b6b",   # 빨강 (#ff0000)
+    4: "#9d8bff",   # 남색 (#000080) -> 밝은 남보라
+    5: "#d9744f",   # 진한 빨강 (#800000)
+    6: "#3fc9c9",   # 청록 (#008080)
+    7: "#e8ecf4",   # 검정 (#000000) -> 흰색
+    8: "#a8b0c0",   # 회색 (#808080)
+}
+MINE_FLAG_COLOR = "#ff5a5a"
+MINE_BOOM_COLOR = "#c0392b"
+MINE_MAX_TIME = 999          # 원작 표시 한계
+
+
+class MineGame:
+    """화면과 무관한 지뢰찾기 규칙."""
+
+    def __init__(self, opt):
+        self.opt = opt
+        self.reset()
+
+    def reset(self):
+        self.level = self.opt("level")
+        if self.level not in MINE_LEVEL_INFO:
+            self.level = "beginner"
+        self.w, self.h, self.mines = MINE_LEVEL_INFO[self.level]
+        self.n = self.w * self.h
+        self.mine = [False] * self.n
+        self.cell_state = [MINE_HIDDEN] * self.n
+        self.num = [0] * self.n
+        self.opened = 0
+        self.cursor = 0
+        self.started = False          # 첫 칸을 열었는가 (시계도 여기서 돈다)
+        self.elapsed = 0.0
+        self.clear_ms = 0.0
+        self.score = 0
+        self.state = "play"
+        self.over = False
+        self.won = False
+        self.boom = -1                # 밟은 지뢰
+        self.msg = ""
+        self.msg_t = 0.0
+        self._scatter()
+        self._count()
+
+    # ------------------------------------------------------------ 판 만들기
+    def _scatter(self):
+        """지뢰를 흩뿌린다. 원작처럼 판을 만들 때 미리 깔아 둔다."""
+        for i in random.sample(range(self.n), self.mines):
+            self.mine[i] = True
+
+    def _count(self):
+        for i in range(self.n):
+            self.num[i] = sum(1 for j in self.neighbors(i) if self.mine[j])
+
+    def _first_click_safe(self, i):
+        """원작(winmine) 그대로 — 첫 칸이 지뢰면 왼쪽 위부터 훑어 옮긴다.
+
+        지뢰를 미리 깔고 첫 칸만 비켜 주는 방식이다. 첫 칸이 반드시 0 이 되도록
+        주변까지 비워 주는 요즘 방식과는 다르다. 원작 그대로 두었다.
+        """
+        if not self.mine[i]:
+            return
+        self.mine[i] = False
+        for j in range(self.n):
+            if j != i and not self.mine[j]:
+                self.mine[j] = True
+                break
+        self._count()
+
+    def neighbors(self, i):
+        r, c = divmod(i, self.w)
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
+                if dr == 0 and dc == 0:
+                    continue
+                rr, cc = r + dr, c + dc
+                if 0 <= rr < self.h and 0 <= cc < self.w:
+                    yield rr * self.w + cc
+
+    # --------------------------------------------------------------- 조작
+    def move_cursor(self, dx, dy):
+        if self.over:
+            return
+        r, c = divmod(self.cursor, self.w)
+        c = max(0, min(self.w - 1, c + dx))
+        r = max(0, min(self.h - 1, r + dy))
+        self.cursor = r * self.w + c
+
+    def select(self, i):
+        if 0 <= i < self.n and not self.over:
+            self.cursor = i
+
+    def reveal(self, i=None):
+        """칸을 연다. 깃발이 꽂힌 칸은 열리지 않는다 (물음표는 열린다)."""
+        if self.over:
+            return
+        i = self.cursor if i is None else i
+        if not (0 <= i < self.n):
+            return
+        st = self.cell_state[i]
+        if st == MINE_FLAG or st == MINE_OPEN:
+            return
+        if not self.started:
+            self.started = True
+            self._first_click_safe(i)
+        if self.mine[i]:
+            self._blow(i)
+            return
+        self._flood(i)
+        self._check_win()
+
+    def _flood(self, start):
+        """0 이면 주변이 줄줄이 열린다. 깃발이 꽂힌 칸은 건너뛴다."""
+        stack = [start]
+        while stack:
+            i = stack.pop()
+            if self.cell_state[i] in (MINE_OPEN, MINE_FLAG):
+                continue
+            self.cell_state[i] = MINE_OPEN
+            self.opened += 1
+            if self.num[i] == 0:
+                stack.extend(self.neighbors(i))
+
+    def chord(self, i=None):
+        """숫자 칸 주변을 한꺼번에 열기 (원작의 양쪽 버튼 누르기).
+
+        꽂아 둔 깃발 수가 그 숫자와 같을 때만 열린다. 깃발이 틀렸으면
+        그대로 지뢰를 밟는다 — 원작도 봐주지 않는다.
+        """
+        if self.over:
+            return
+        i = self.cursor if i is None else i
+        if not (0 <= i < self.n) or self.cell_state[i] != MINE_OPEN:
+            return
+        if self.num[i] == 0:
+            return
+        around = list(self.neighbors(i))
+        flags = sum(1 for j in around if self.cell_state[j] == MINE_FLAG)
+        if flags != self.num[i]:
+            return
+        for j in around:
+            if self.cell_state[j] in (MINE_OPEN, MINE_FLAG):
+                continue
+            if self.mine[j]:
+                self._blow(j)
+                return
+            self._flood(j)
+        self._check_win()
+
+    def flag(self, i=None):
+        """깃발 -> 물음표 -> 해제. 물음표는 설정에서 끌 수 있다 (원작도 옵션)."""
+        if self.over:
+            return
+        i = self.cursor if i is None else i
+        if not (0 <= i < self.n) or self.cell_state[i] == MINE_OPEN:
+            return
+        marks = bool(self.opt("marks"))
+        st = self.cell_state[i]
+        if st == MINE_HIDDEN:
+            self.cell_state[i] = MINE_FLAG
+        elif st == MINE_FLAG:
+            self.cell_state[i] = MINE_QUESTION if marks else MINE_HIDDEN
+        else:
+            self.cell_state[i] = MINE_HIDDEN
+
+    # --------------------------------------------------------------- 판정
+    def _blow(self, i):
+        self.boom = i
+        self.over = True
+        self.won = False
+        self.state = "over"
+        self.flash(tr("지뢰!"))
+
+    def _check_win(self):
+        if self.opened < self.n - self.mines:
+            return
+        # 원작처럼 남은 지뢰에 깃발을 꽂아 주고 시계를 멈춘다
+        for j in range(self.n):
+            if self.mine[j] and self.cell_state[j] != MINE_OPEN:
+                self.cell_state[j] = MINE_FLAG
+        self.won = True
+        self.over = True
+        self.state = "over"
+        self.clear_ms = self.elapsed
+        self.score = self.final_score()
+        self.flash(tr("클리어!"))
+
+    def final_score(self):
+        """원작에는 점수가 없고 시간만 남는다. 이 앱은 점수 칸을 쓰므로
+        난이도와 걸린 시간으로 견줄 수 있는 값을 만들어 둔다."""
+        base = {"beginner": 1000, "intermediate": 3000, "expert": 8000}
+        secs = max(1, int(self.clear_ms // 1000))
+        keep = max(0.3, 1.0 - secs / 600.0)
+        return max(1, int(base.get(self.level, 1000) * keep))
+
+    # ------------------------------------------------------------ 표시용
+    def flags_used(self):
+        return sum(1 for st in self.cell_state if st == MINE_FLAG)
+
+    def left(self):
+        """남은 지뢰 수. 원작처럼 깃발을 많이 꽂으면 음수가 된다."""
+        return self.mines - self.flags_used()
+
+    def time_text(self, ms=None):
+        t = int((self.elapsed if ms is None else ms) // 1000)
+        return "%d" % min(MINE_MAX_TIME, t)
+
+    def flash(self, text, ms=1300.0):
+        self.msg = text
+        self.msg_t = ms
+
+    # ------------------------------------------- 창이 요구하는 이름들
+    def move(self, dx):
+        self.move_cursor(dx, 0)
+
+    def update(self, dt):
+        if self.over:
+            return
+        if self.started:
+            self.elapsed += dt
+        if self.msg_t > 0:
+            self.msg_t = max(0.0, self.msg_t - dt)
+            if self.msg_t == 0:
+                self.msg = ""
+
+
+class MineBoard(QWidget):
+    """원작처럼 안 열린 칸은 도톰하게, 열린 칸은 납작하게 그린다."""
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.win = win
+        self._chording = False
+        self.resync()
+
+    def cell(self):
+        # 고급은 가로 30칸이라 낙하 퍼즐과 같은 셀 크기를 쓰면 창이 화면을 넘는다
+        return max(11, int(self.win.cfg.s["cell"] * 0.62))
+
+    def resync(self):
+        g = self.win.game
+        c = self.cell()
+        self.setFixedSize(c * g.w, c * g.h)
+        self.update()
+
+    def cell_at(self, pos):
+        g = self.win.game
+        c = self.cell()
+        col, row = int(pos.x()) // c, int(pos.y()) // c
+        if 0 <= col < g.w and 0 <= row < g.h:
+            return row * g.w + col
+        return None
+
+    # --------------------------------------------------------------- 마우스
+    def mousePressEvent(self, event):
+        i = self.cell_at(event.pos())
+        if i is None:
+            event.ignore()
+            return
+        g = self.win.game
+        g.select(i)
+        both = bool(event.buttons() & Qt.LeftButton) and \
+            bool(event.buttons() & Qt.RightButton)
+        if both or event.button() == Qt.MiddleButton:
+            # 원작의 양쪽 버튼 누르기. 여기서 바로 열고, 떼는 순간은 무시한다.
+            self._chording = True
+            g.chord(i)
+        elif event.button() == Qt.LeftButton:
+            g.reveal(i)
+        elif event.button() == Qt.RightButton:
+            g.flag(i)
+        self.update()
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        # 양쪽 누르기로 이미 열었으면, 버튼을 하나씩 뗄 때 또 열지 않는다
+        if not event.buttons():
+            self._chording = False
+        event.accept()
+
+    def paintEvent(self, _event):
+        g = self.win.game
+        s = self.win.cfg.s
+        c = self.cell()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+
+        bg = QColor(s["bg_color"])
+        bg.setAlpha(int(s["bg_alpha"]))
+        if bg.alpha():
+            p.setPen(Qt.NoPen)
+            p.setBrush(bg)
+            p.drawRoundedRect(QRectF(0, 0, self.width(), self.height()),
+                              c * 0.16, c * 0.16)
+
+        lift = faint_strength(s)
+        faint = faint_bg(s)
+        shadow = QColor(0, 0, 0, 225 if lift else 190)
+        num_font = QFont(UI_FONT)
+        num_font.setPixelSize(max(8, int(c * 0.66)))
+        num_font.setBold(True)
+
+        for i in range(g.n):
+            r, col = divmod(i, g.w)
+            rect = QRectF(col * c, r * c, c, c)
+            st = g.cell_state[i]
+            shown_mine = g.over and not g.won and g.mine[i] and st != MINE_FLAG
+            if st == MINE_OPEN or shown_mine:
+                self._draw_open(p, rect, c, i, g, num_font, faint, shadow)
+            else:
+                self._draw_tile(p, rect, c, lift)
+                if st == MINE_FLAG:
+                    wrong = g.over and not g.won and not g.mine[i]
+                    self._draw_flag(p, rect, c, wrong)
+                elif st == MINE_QUESTION:
+                    self._draw_glyph(p, rect, num_font, "?",
+                                     QColor("#dfe5f0"), faint, shadow)
+
+        ga = grid_alpha_of(s)
+        if ga:
+            lines = [(x * c, 0, x * c, self.height()) for x in range(g.w + 1)]
+            lines += [(0, y * c, self.width(), y * c) for y in range(g.h + 1)]
+            draw_lines(p, lines, grid_color(ga, lift), lift)
+
+        # 키보드로 고른 칸
+        if not g.over:
+            r, col = divmod(g.cursor, g.w)
+            p.setBrush(Qt.NoBrush)
+            p.setPen(QPen(QColor(255, 255, 255, 210), max(1.4, c * 0.09)))
+            p.drawRect(QRectF(col * c + 1, r * c + 1, c - 2, c - 2))
+
+        draw_board_edge(p, self.width(), self.height(), c * 0.16, lift)
+
+        if self.win.paused and not g.over:
+            self._veil(p)
+            self._center(p, tr("일시정지"), c * 0.9, 0.46, QColor("#ffffff"))
+            self._center(p, self.win.key_hint("pause") + tr(" 로 재개"),
+                         c * 0.46, 0.56, QColor("#c9d1e0"))
+        elif g.over:
+            self._veil(p)
+            if g.won:
+                self._center(p, tr("클리어!"), c * 0.95, 0.38,
+                             QColor("#9cf0a6"))
+                self._center(p, tr("걸린 시간 %s초") % g.time_text(g.clear_ms),
+                             c * 0.6, 0.49, QColor("#ffffff"))
+                best = -int(self.win.cfg.rec.get("best_time_" + g.level, 0))
+                secs = int(g.clear_ms // 1000)
+                if best <= 0 or secs <= best:
+                    self._center(p, tr("최고 기록!"), c * 0.46, 0.57,
+                                 QColor("#ffd97a"))
+                else:
+                    self._center(p, tr("최고 %d초") % best, c * 0.46, 0.57,
+                                 QColor("#c9d1e0"))
+            else:
+                self._center(p, tr("지뢰를 밟았다"), c * 0.8, 0.45,
+                             QColor("#ff8a95"))
+            self._center(p, tr("%s / %s 새 게임")
+                         % (self.win.key_hint("new_game"),
+                            self.win.key_hint("restart")),
+                         c * 0.44, 0.66, QColor("#c9d1e0"))
+        p.end()
+
+    # ------------------------------------------------------------- 칸 그리기
+    def _draw_tile(self, p, rect, c, lift):
+        """안 열린 칸 — 원작처럼 도톰하게 (왼쪽 위 밝게, 오른쪽 아래 어둡게).
+
+        베벨은 칸 안쪽으로만 그린다. 칸 경계에 걸쳐 그리면 옆 칸의 밝은 면과
+        이 칸의 어두운 면이 맞닿아, 도톰해 보이는 대신 지저분한 줄만 남는다.
+        """
+        p.setPen(Qt.NoPen)
+        inner = rect.adjusted(0.5, 0.5, -0.5, -0.5)
+        p.setBrush(QColor(255, 255, 255, 74 if lift else 62))
+        p.drawRect(inner)
+        bevel = max(1.0, c * 0.13)
+        p.setBrush(QColor(255, 255, 255, 92))
+        p.drawRect(QRectF(inner.x(), inner.y(), inner.width(), bevel))
+        p.drawRect(QRectF(inner.x(), inner.y(), bevel, inner.height()))
+        p.setBrush(QColor(0, 0, 0, 110))
+        p.drawRect(QRectF(inner.x(), inner.bottom() - bevel,
+                          inner.width(), bevel))
+        p.drawRect(QRectF(inner.right() - bevel, inner.y(),
+                          bevel, inner.height()))
+
+    def _draw_open(self, p, rect, c, i, g, font, faint, shadow):
+        p.setPen(Qt.NoPen)
+        if g.mine[i]:
+            if i == g.boom:
+                p.setBrush(QColor(MINE_BOOM_COLOR))
+                p.drawRect(rect)
+            self._draw_mine(p, rect, c)
+            return
+        v = g.num[i]
+        if v:
+            self._draw_glyph(p, rect, font, str(v),
+                             QColor(MINE_NUM_COLORS[v]), faint, shadow)
+
+    def _draw_glyph(self, p, rect, font, text, color, faint, shadow):
+        p.setFont(font)
+        if faint:
+            p.setPen(shadow)
+            p.drawText(rect.translated(1, 1), Qt.AlignCenter, text)
+        p.setPen(color)
+        p.drawText(rect, Qt.AlignCenter, text)
+
+    def _draw_flag(self, p, rect, c, wrong):
+        x, y, w = rect.x(), rect.y(), rect.width()
+        pole = QRectF(x + w * 0.46, y + w * 0.22, max(1.0, w * 0.09), w * 0.56)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor("#e8ecf4"))
+        p.drawRect(pole)
+        p.drawRect(QRectF(x + w * 0.26, y + w * 0.72,
+                          w * 0.48, max(1.0, w * 0.1)))
+        tri = QPainterPath()
+        tri.moveTo(x + w * 0.46, y + w * 0.2)
+        tri.lineTo(x + w * 0.2, y + w * 0.36)
+        tri.lineTo(x + w * 0.46, y + w * 0.52)
+        tri.closeSubpath()
+        p.setBrush(QColor(MINE_FLAG_COLOR))
+        p.drawPath(tri)
+        if wrong:
+            # 잘못 꽂은 깃발 — 원작처럼 X 로 알려 준다
+            p.setBrush(Qt.NoBrush)
+            p.setPen(QPen(QColor("#ff4d4d"), max(1.4, c * 0.1)))
+            p.drawLine(QPointF(x + w * 0.16, y + w * 0.16),
+                       QPointF(x + w * 0.84, y + w * 0.84))
+            p.drawLine(QPointF(x + w * 0.84, y + w * 0.16),
+                       QPointF(x + w * 0.16, y + w * 0.84))
+
+    def _draw_mine(self, p, rect, c):
+        """지뢰. 원작은 밝은 회색 판 위의 검은 공인데, 이 앱은 판이 어두우니
+        밝고 어두운 쪽을 맞바꿨다 (검게 그리면 판에 묻혀 안 보인다)."""
+        cx, cy = rect.center().x(), rect.center().y()
+        rad = rect.width() * 0.24
+        body = QColor("#f2f4f8")
+        p.setPen(QPen(body, max(1.2, c * 0.08)))
+        for dx, dy in ((1, 0), (0, 1), (0.72, 0.72), (0.72, -0.72)):
+            p.drawLine(QPointF(cx - dx * rad * 1.75, cy - dy * rad * 1.75),
+                       QPointF(cx + dx * rad * 1.75, cy + dy * rad * 1.75))
+        p.setPen(QPen(QColor(0, 0, 0, 160), max(1.0, c * 0.05)))
+        p.setBrush(body)
+        p.drawEllipse(QRectF(cx - rad, cy - rad, rad * 2, rad * 2))
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(0, 0, 0, 150))
+        p.drawEllipse(QRectF(cx - rad * 0.15, cy - rad * 0.15,
+                             rad * 0.5, rad * 0.5))
+
+    def _veil(self, p):
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(8, 10, 16, 180))
+        p.drawRoundedRect(QRectF(0, 0, self.width(), self.height()),
+                          self.cell() * 0.16, self.cell() * 0.16)
+
+    def _center(self, p, text, size, ratio, color):
+        f = QFont(UI_FONT)
+        f.setPixelSize(max(9, int(size)))
+        f.setBold(True)
+        p.setFont(f)
+        fm = p.fontMetrics()
+        try:
+            tw = fm.horizontalAdvance(text)
+        except AttributeError:
+            tw = fm.width(text)
+        path = QPainterPath()
+        path.addText(QPointF((self.width() - tw) / 2.0,
+                             self.height() * ratio), f, text)
+        p.setPen(QPen(QColor(0, 0, 0, 200), max(2.0, size * 0.12)))
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(path)
+        p.setPen(Qt.NoPen)
+        p.setBrush(color)
+        p.drawPath(path)
+
+
+def mine_settings_tab(dlg):
+    w = dlg.w
+    page = QWidget()
+    form = QFormLayout(page)
+
+    level = QComboBox()
+    for key in MINE_LEVEL_KEYS:
+        ww, hh, mm = MINE_LEVEL_INFO[key]
+        level.addItem(tr("%s (%dx%d, 지뢰 %d)")
+                      % (tr(MINE_LEVEL_LABEL[key]), ww, hh, mm), key)
+    cur = w.cfg.opt("level")
+    if cur not in MINE_LEVEL_KEYS:
+        cur = "beginner"
+    level.setCurrentIndex(MINE_LEVEL_KEYS.index(cur))
+    level.currentIndexChanged.connect(
+        lambda i: dlg._set_game("level", level.itemData(i)))
+    form.addRow(tr("난이도"), level)
+
+    marks = QCheckBox(tr("물음표 표시 쓰기"))
+    marks.setChecked(bool(w.cfg.opt("marks")))
+    marks.toggled.connect(lambda on: dlg._set_game("marks", bool(on)))
+    form.addRow("", marks)
+
+    note = QLabel(
+        tr("원작 규칙 그대로다. 왼쪽 클릭으로 열고 오른쪽 클릭으로 깃발을 꽂는다.\n"
+        "숫자 칸에서 양쪽 버튼(또는 가운데 버튼)을 누르면 주변이 한꺼번에 열린다.\n"
+        "꽂아 둔 깃발 수가 그 숫자와 같을 때만 열리고, 깃발이 틀렸으면 터진다.\n"
+        "첫 칸은 절대 지뢰가 아니다.\n"
+        "난이도를 바꾸면 다음 게임부터 적용된다 (F2 / R 로 새 게임)."))
+    note.setWordWrap(True)
+    form.addRow(tr("규칙"), note)
+    return page
+
+
+def mine_stats(win, g, compact):
+    info = tr("%s초 · 남은 지뢰 %d") % (g.time_text(), g.left())
+    if g.msg:
+        info = g.msg
+    best = -int(win.cfg.rec.get("best_time_" + g.level, 0))
+    best_txt = "-" if best <= 0 else tr("%d초") % best
+    time_row = (tr("걸린 시간<br><b>%s초</b>") % g.time_text(g.clear_ms)
+                if g.won else tr("시간<br><b>%s초</b>") % g.time_text())
+    if compact:
+        return (tr("<b>%s초</b>"
+                "<br>%s"
+                "<br><br>지뢰 <b>%d</b>"
+                "<br>깃발 <b>%d</b>"
+                "<br>최고 <b>%s</b>")
+                % (g.time_text(g.clear_ms if g.won else None),
+                   tr(MINE_LEVEL_LABEL.get(g.level, g.level)),
+                   g.left(), g.flags_used(), best_txt), info)
+    return (tr("%s"
+            "<br><br>난이도<br><b>%s</b>"
+            "<br><br>남은 지뢰 <b>%d</b>"
+            "<br>꽂은 깃발 <b>%d</b>"
+            "<br>연 칸 <b>%d</b>/%d"
+            "<br><br>최고 기록<br><b>%s</b>")
+            % (time_row, tr(MINE_LEVEL_LABEL.get(g.level, g.level)),
+               g.left(), g.flags_used(), g.opened, g.n - g.mines,
+               best_txt), info)
+
+
+def mine_records(g):
+    """이긴 경우에만 기록한다. 원작처럼 시간이 기록이라 짧을수록 좋다."""
+    if not g.won:
+        return {}
+    secs = max(1, int(g.clear_ms // 1000))
+    return {"best": g.score, "best_time_" + g.level: -secs}
+
+
+MINESWEEPER = register_game(GameSpec(
+    key="mine",
+    label="지뢰찾기",
+    defaults={"level": "beginner", "marks": True},
+    engine=MineGame,
+    board=MineBoard,
+    stats=mine_stats,
+    settings_tab=mine_settings_tab,
+    actions={"cur_left", "cur_right", "cur_up", "cur_down",
+             "reveal", "flag", "chord"},
+    records=mine_records,
+    wants_mouse=True,
+))
+
+
 def force_fusion_style():
     """Qt 스타일을 Fusion 으로 고정한다.
 
@@ -4720,6 +5353,7 @@ class PuyoWindow(QWidget):
         self.game = self.spec.engine(cfg.opt)
         self._resumed = self._load_save()   # 껐을 때 풀던 판이 있으면 이어서
         self._save_due = 0.0
+        self._over_seen = bool(self.game.over)
 
         self.setObjectName("puyoRoot")
         self.setWindowTitle(cfg.s["disguise_title"])
@@ -4859,6 +5493,10 @@ class PuyoWindow(QWidget):
         "erase2": lambda g: g.erase(),
         "undo": lambda g: g.undo(),
         "hint": lambda g: g.hint(),
+        # 지뢰찾기
+        "reveal": lambda g: g.reveal(),
+        "flag": lambda g: g.flag(),
+        "chord": lambda g: g.chord(),
     }
     for _n in range(1, 10):
         GAME_VERBS["num_%d" % _n] = (lambda n: lambda g: g.enter(n))(_n)
@@ -5358,10 +5996,7 @@ class PuyoWindow(QWidget):
         self._last_ms = now
 
         if not self.paused and not self.game.over:
-            before_over = self.game.over
             self.game.update(dt)
-            if self.game.over and not before_over:
-                self._record_best()
             # 오래 붙들고 푸는 판은 틈틈이 담아 둔다. 갑자기 꺼져도 몇 초치만
             # 잃는다. 파일 쓰기는 save_timer 가 모아서 한 번만 한다.
             if self.spec.resumable:
@@ -5369,6 +6004,16 @@ class PuyoWindow(QWidget):
                 if self._save_due <= 0:
                     self._save_due = 10000.0
                     self.schedule_save()
+
+        # 판이 끝나는 순간 기록을 남긴다. 끝나는 계기는 게임마다 다르다 —
+        # 낙하 퍼즐은 시간이 흐르다 끝나지만, 스도쿠·지뢰찾기는 누르는 순간
+        # 끝난다. 그래서 update() 안에서만 보지 않고, 끝났는지를 매 틱 본다.
+        if self.game.over and not self._over_seen:
+            self._over_seen = True
+            self._record_best()
+        elif not self.game.over:
+            self._over_seen = False
+
         if self.isVisible():
             self.board.update()
             if self.next_view is not None:
@@ -5403,6 +6048,7 @@ class PuyoWindow(QWidget):
         self.game = self.spec.engine(self.cfg.opt)
         self._resumed = self._load_save()   # 돌아온 게임의 판을 되살린다
         self._save_due = 0.0
+        self._over_seen = bool(self.game.over)
 
         self.mid.removeWidget(self.board)
         self.board.setParent(None)
@@ -5435,7 +6081,7 @@ class PuyoWindow(QWidget):
         # 숨어 있는 동안 전역 키로 재시작했다면 그대로 얼려 둔다
         self.paused = (not self.isVisible()) and bool(self.cfg.s["pause_on_hide"])
         self.flash(tr("새 게임"))
-        self.board.update()
+        self.resync_size()
 
     def _update_stats(self):
         g = self.game
