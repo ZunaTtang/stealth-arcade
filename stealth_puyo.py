@@ -376,6 +376,13 @@ TR = {
     "%d번": "%d",
     "이어서 풀기": "Resuming",
     "일시정지 / 재개 (P)": "Pause / resume (P)",
+    "창 옮기기": "Moving the window",
+    "본문 아무 곳이나 잡고 끌면 창이 움직인다.\n"
+    "스도쿠·지뢰찾기처럼 판을 눌러야 하는 게임은 판이 클릭을 쓰므로,\n"
+    "Alt 를 누른 채로 끌면 판 위에서도 창이 움직인다.":
+        "Drag anywhere in the body to move the window.\n"
+        "In games that need clicks on the field, such as Sudoku and\n"
+        "Minesweeper, hold Alt to drag the window from the field too.",
     "일시정지 / 재개": "Pause / resume",
     "일시정지 (P)": "Pause (P)",
     "재개 (P)": "Resume (P)",
@@ -3803,6 +3810,8 @@ class SudokuBoard(QWidget):
         return None
 
     def mousePressEvent(self, event):
+        if self.win.wants_window_drag(event):
+            return
         if self.win.eat_click_while_paused(event):
             return
         i = self.cell_at(event.pos())
@@ -3813,6 +3822,14 @@ class SudokuBoard(QWidget):
         g.select(i)
         self.update()
         event.accept()
+
+    def mouseMoveEvent(self, event):
+        if not self.win.forward_drag_move(event):
+            event.ignore()
+
+    def mouseReleaseEvent(self, event):
+        if not self.win.forward_drag_release(event):
+            event.ignore()
 
     def paintEvent(self, _event):
         g = self.win.game
@@ -4065,7 +4082,17 @@ class SudokuPad(QWidget):
                 return ("act", act)
         return None
 
+    def mouseMoveEvent(self, event):
+        if not self.win.forward_drag_move(event):
+            event.ignore()
+
+    def mouseReleaseEvent(self, event):
+        if not self.win.forward_drag_release(event):
+            event.ignore()
+
     def mousePressEvent(self, event):
+        if self.win.wants_window_drag(event):
+            return
         if self.win.eat_click_while_paused(event):
             return
         hit = self._hit(event.pos())
@@ -4628,6 +4655,8 @@ class MineBoard(QWidget):
 
     # --------------------------------------------------------------- 마우스
     def mousePressEvent(self, event):
+        if self.win.wants_window_drag(event):
+            return
         if self.win.eat_click_while_paused(event):
             return
         i = self.cell_at(event.pos())
@@ -4649,7 +4678,13 @@ class MineBoard(QWidget):
         self.update()
         event.accept()
 
+    def mouseMoveEvent(self, event):
+        if not self.win.forward_drag_move(event):
+            event.ignore()
+
     def mouseReleaseEvent(self, event):
+        if self.win.forward_drag_release(event):
+            return
         # 양쪽 누르기로 이미 열었으면, 버튼을 하나씩 뗄 때 또 열지 않는다
         if not event.buttons():
             self._chording = False
@@ -5159,6 +5194,13 @@ class SettingsDialog(QDialog):
         form.addRow(QLabel(tr("상단바 아이콘")))
         form.addRow(holder)
 
+        drag_note = QLabel(
+            tr("본문 아무 곳이나 잡고 끌면 창이 움직인다.\n"
+            "스도쿠·지뢰찾기처럼 판을 눌러야 하는 게임은 판이 클릭을 쓰므로,\n"
+            "Alt 를 누른 채로 끌면 판 위에서도 창이 움직인다."))
+        drag_note.setWordWrap(True)
+        form.addRow(tr("창 옮기기"), drag_note)
+
         lang = QComboBox()
         for code, name in LANG_NAMES:
             lang.addItem(name, code)
@@ -5644,12 +5686,32 @@ class PuyoWindow(QWidget):
         return (self.cfg.keys.get(action_id) or "").strip() or tr("(없음)")
 
     def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Alt, Qt.Key_AltGr):
+            self.show_drag_cursor(True)
         combo = int(event.modifiers() & MOD_MASK) | int(event.key())
         action_id = self.key_map.get(combo)
         if action_id is None:
             return super().keyPressEvent(event)
         self.run_action(action_id)
         event.accept()
+
+    def keyReleaseEvent(self, event):
+        if event.key() in (Qt.Key_Alt, Qt.Key_AltGr):
+            self.show_drag_cursor(False)
+        super().keyReleaseEvent(event)
+
+    def show_drag_cursor(self, on):
+        """수식키를 누르고 있는 동안 판 위 커서를 '옮기기' 모양으로 바꾼다.
+
+        어디서든 끌 수 있다는 것을 알려 주려면 눈에 보여야 한다. 판이 클릭을
+        먹는 게임에서만 의미가 있으니 거기서만 바꾼다.
+        """
+        if not self.spec.wants_mouse:
+            return
+        shape = Qt.SizeAllCursor if on else Qt.ArrowCursor
+        for widget in (self.board, self.next_view):
+            if widget is not None:
+                widget.setCursor(shape)
 
     def run_action(self, action_id):
         if self.paused and action_id not in self.ALWAYS_ON:
@@ -6002,6 +6064,40 @@ class PuyoWindow(QWidget):
         btn.setIcon(tool_icon("play" if self.paused else "pause", "#e8ecf4"))
         btn.setToolTip(tr("재개 (P)") if self.paused else tr("일시정지 (P)"))
 
+    # 창을 끌려고 누른 것인가. 스도쿠·지뢰찾기는 판이 클릭을 다 먹어서
+    # 창에서 끌 수 있는 자리가 절반도 안 남는다(재 보니 43% / 49%). 상단바를
+    # 감추면 더 줄어든다. 수식키를 누른 채로는 어디서든 창을 끌 수 있게 한다.
+    DRAG_MOD = Qt.AltModifier
+
+    def wants_window_drag(self, event):
+        """판에서 부른다. 참이면 그 클릭은 게임이 아니라 창 끌기다.
+
+        이벤트를 거절해서 부모로 올려보내는 방법은 쓰지 않는다. QWidget.event()
+        가 mousePressEvent 뒤에 다시 '처리했다'로 표시해 버려서, 거절이 창까지
+        올라간다고 믿을 수 없다. 여기서 직접 끌기를 시작하고, 판이 뒤이은
+        움직임·뗌을 창으로 넘긴다.
+        """
+        if not (event.modifiers() & self.DRAG_MOD):
+            return False
+        self._drag_last = event.globalPos()
+        self._drag_from = event.globalPos()
+        self._dragging = False
+        event.accept()
+        return True
+
+    def forward_drag_move(self, event):
+        """판에서 부른다 — 끌고 있는 중이면 창이 이어서 처리한다."""
+        if self._drag_last is None:
+            return False
+        self.mouseMoveEvent(event)
+        return True
+
+    def forward_drag_release(self, event):
+        if self._drag_last is None:
+            return False
+        self.mouseReleaseEvent(event)
+        return True
+
     def eat_click_while_paused(self, event):
         """멈춰 있는 동안 판을 누르면 수를 두지 않고 다시 시작한다.
 
@@ -6015,6 +6111,9 @@ class PuyoWindow(QWidget):
         return True
 
     def changeEvent(self, event):
+        if event.type() == QEvent.ActivationChange and not self.isActiveWindow():
+            # 비활성화되면 수식키를 뗀 것을 받지 못한다 — 커서를 되돌려 둔다
+            self.show_drag_cursor(False)
         # 포커스를 잃으면 자동으로 숨긴다 — 설정 창을 여는 동안은 예외
         if (event.type() == QEvent.ActivationChange
                 and not self.isActiveWindow()
