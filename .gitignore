@@ -33,3 +33,6 @@ _dbg_appdata/
 # Windows
 Thumbs.db
 desktop.ini
+# 테스트용 임시 APPDATA 폴더 (검증 스크립트가 만든다)
+_*/
+_*.png
