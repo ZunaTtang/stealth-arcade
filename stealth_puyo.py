@@ -201,6 +201,7 @@ _TR_MISS = set()          # 번역이 없어 그냥 내보낸 글 (점검용)
 TR = {
     # ---- 공용 ----
     "설정": "Settings",
+    "닫기": "Close",
     "화면": "Screen",
     "게임": "Game",
     "단축키": "Keys",
@@ -245,8 +246,8 @@ TR = {
         '6x12 field plus a hidden 13th row; game over when column 3 is blocked.\nArcade scoring (chain / colour / group bonuses), quick turn, wall and\nfloor kicks. An all clear pays out on your next attack, and garbage\noffsetting and margin time follow the arcade rules.',
     '10×20 필드. SRS 회전과 벽 밀기 표(I 는 따로), 7-bag,\n굳기 지연 0.5초에 이동·회전 15회까지 미루기,\nT-스핀 3코너 판정, 백투백, 콤보, 퍼펙트 클리어,\n가이드라인 점수와 중력 곡선, 뿌요테트 공격표를 따른다.':
         '10x20 field. SRS rotation with the official kick tables (I has its own),\n7-bag, 0.5s lock delay with up to 15 move resets, 3-corner T-Spin\ndetection, back-to-back, combos, perfect clear, guideline scoring and\ngravity curve, and the Puyo Puyo Tetris attack table.',
-    'sudoku.com 방식이다. 실수 3번이면 끝, 메모(연필)·힌트·되돌리기가 있고,\n숫자를 넣으면 같은 줄·칸·박스의 그 숫자 메모가 자동으로 지워진다.\n고른 칸의 줄·칸·박스와 같은 숫자를 함께 밝게 보여 준다.\n난이도는 주어진 숫자 개수와 풀이에 필요한 기법으로 가른다.\n난이도를 바꾸면 다음 문제부터 적용된다 (F2 / R 로 새 문제).':
-        "Follows sudoku.com. Three mistakes ends the game; notes, hints and undo\nare available. Placing a number clears that note from its row, column and\nbox. The selected cell's row, column and box are highlighted along with\nevery matching number. Difficulty comes from the number of givens and the\ntechniques a solver needs. A new difficulty applies to the next puzzle\n(F2 / R for a new one).",
+    'sudoku.com 방식이다. 메모(연필)·힌트·되돌리기가 있고,\n숫자를 넣으면 같은 줄·칸·박스의 그 숫자 메모가 자동으로 지워진다.\n고른 칸의 줄·칸·박스와 같은 숫자를 함께 밝게 보여 준다.\n난이도는 주어진 숫자 개수와 풀이에 필요한 기법으로 가른다.\n난이도를 바꾸면 다음 문제부터 적용된다 (F2 / R 로 새 문제).\n실수 허용 횟수는 지금 풀던 판에도 바로 적용된다.\n풀던 판은 앱을 껐다 켜도 그대로 이어서 푼다.':
+        "Follows sudoku.com. Notes, hints and undo are available.\n Placing a number clears that note from its row, column and\nbox. The selected cell's row, column and box are highlighted along with\nevery matching number. Difficulty comes from the number of givens and the\ntechniques a solver needs. A new difficulty applies to the next puzzle\n(F2 / R for a new one). The mistake limit takes effect on the puzzle\nyou are solving right now. An unfinished puzzle is kept, so you pick up\nwhere you left off after restarting the app.",
     # ---- 상단바 · 메뉴 · 안내 ----
     "Esc 숨기기 · Ctrl+Alt+Z 복귀": "Esc to hide · Ctrl+Alt+Z to bring back",
     "새 게임 (F2 / R)": "New game (F2 / R)",
@@ -347,6 +348,7 @@ TR = {
     "완성!": "Solved!",
     "%s · %s점": "%s · %s pts",
     "실수 %d번": "%d mistakes",
+    "실수 1번": "1 mistake",
     "%s / %s 새 문제": "%s / %s for a new puzzle",
     "메모": "Notes",
     "지우기": "Erase",
@@ -360,19 +362,30 @@ TR = {
     "꺼짐": "off",
     "처음부터 있던 숫자입니다": "That number was given",
     "실수 %d / %d": "Mistake %d / %d",
+    "실수 %s": "Mistake %s",
+    "걸린 시간 %s": "Solved in %s",
+    "최고 기록!": "Best time!",
+    "최고 %d:%02d": "Best %d:%02d",
+    "%s점": "%s pts",
+    "실수 허용": "Mistake limit",
+    "제한 없음": "No limit",
+    "%d번": "%d",
+    "이어서 풀기": "Resuming",
     "힌트 %d번째": "Hint #%d",
     "%s (%d~%d칸)": "%s (%d–%d givens)",
-    "%s · 실수 %d/%d": "%s · %d/%d mistakes",
-    "<b>%s</b><br>%s<br><br>남은 <b>%d</b><br>실수 <b>%d</b>/%d<br>힌트 <b>%d</b>"
+    "%s · 실수 %s": "%s · %s mistakes",
+    "<b>%s</b><br>%s<br><br>남은 <b>%d</b><br>실수 <b>%s</b><br>힌트 <b>%d</b>"
     "<br><br>최고 <b>%s</b>":
-        "<b>%s</b><br>%s<br><br>Left <b>%d</b><br>Mistakes <b>%d</b>/%d"
+        "<b>%s</b><br>%s<br><br>Left <b>%d</b><br>Mistakes <b>%s</b>"
         "<br>Hints <b>%d</b><br><br>Best <b>%s</b>",
-    "시간<br><b>%s</b><br><br>난이도<br><b>%s</b><br>필요 기법<br><b>%s</b>"
-    "<br><br>남은 칸 <b>%d</b><br>실수 <b>%d</b> / %d<br>힌트 <b>%d</b>"
+    "%s<br><br>난이도<br><b>%s</b><br>필요 기법<br><b>%s</b>"
+    "<br><br>남은 칸 <b>%d</b><br>실수 <b>%s</b><br>힌트 <b>%d</b>"
     "<br><br>최고 기록<br><b>%s</b>":
-        "Time<br><b>%s</b><br><br>Difficulty<br><b>%s</b><br>Needs<br><b>%s</b>"
-        "<br><br>Empty <b>%d</b><br>Mistakes <b>%d</b> / %d<br>Hints <b>%d</b>"
+        "%s<br><br>Difficulty<br><b>%s</b><br>Needs<br><b>%s</b>"
+        "<br><br>Empty <b>%d</b><br>Mistakes <b>%s</b><br>Hints <b>%d</b>"
         "<br><br>Best time<br><b>%s</b>",
+    "시간<br><b>%s</b>": "Time<br><b>%s</b>",
+    "걸린 시간<br><b>%s</b>": "Solved in<br><b>%s</b>",
     # 난이도 이름
     "쉬움": "Easy",
     "보통": "Medium",
@@ -499,7 +512,7 @@ class GameSpec:
 
     def __init__(self, key, label, defaults, engine, board, stats,
                  settings_tab, actions, records, side=None,
-                 wants_mouse=False):
+                 wants_mouse=False, dump=None, restore=None):
         self.key = key
         self.label = label
         self.defaults = dict(defaults)
@@ -511,6 +524,17 @@ class GameSpec:
         self.actions = frozenset(actions)
         self.records = records
         self.wants_mouse = bool(wants_mouse)
+        # 이어하기. 둘 다 있어야 켜진다.
+        #   dump(game)          -> JSON 으로 담을 수 있는 dict, 또는 None
+        #   restore(game, data) -> 되살렸으면 True
+        # 판이 쌓이는 게임(뿌요·테트리스)은 잠깐 끊겼다 이어 봐야 의미가 없어
+        # 붙이지 않았다. 오래 붙들고 푸는 스도쿠만 쓴다.
+        self.dump = dump
+        self.restore = restore
+
+    @property
+    def resumable(self):
+        return bool(self.dump and self.restore)
 
 
 GAMES = {}                        # key -> GameSpec (등록 순서 유지)
@@ -552,6 +576,7 @@ class Config:
             "records": {k: {} for k in GAMES},
             "game": default_game(),
             "keys": dict(DEFAULT_KEYS),
+            "saves": {},
         }
         self.load()
 
@@ -593,6 +618,12 @@ class Config:
                 if raw.get(old_key):
                     records["puyo"][new_key] = int(raw[old_key])
         self.data["records"] = records
+
+        saves = {}
+        for key, saved in (raw.get("saves") or {}).items():
+            if key in GAMES and isinstance(saved, dict):
+                saves[key] = saved
+        self.data["saves"] = saves
 
         picked = raw.get("game")
         self.data["game"] = picked if picked in GAMES else default_game()
@@ -658,6 +689,21 @@ class Config:
     def set_game(self, key):
         if key in GAMES:
             self.data["game"] = key
+
+    # ------------------------------------------------------------ 이어하기
+    def take_save(self, key):
+        """저장해 둔 판을 꺼내면서 지운다.
+
+        꺼낼 때 지우는 이유 — 되살리다 실패해도 깨진 기록이 남아 켤 때마다
+        같은 곳에서 넘어지지 않는다.
+        """
+        return self.data["saves"].pop(key, None)
+
+    def put_save(self, key, data):
+        if data:
+            self.data["saves"][key] = data
+        else:
+            self.data["saves"].pop(key, None)
 
 
 # ========================================================= 전역 핫키 수신기
@@ -2494,7 +2540,10 @@ TETRIS = register_game(GameSpec(
 #   · 고른 칸의 줄·칸·박스와 같은 숫자를 함께 밝게 보여 준다
 SUD_N = 9                     # 9x9
 SUD_BOX = 3
-SUD_MISTAKES = 3              # sudoku.com 과 같이 세 번 틀리면 끝
+SUD_MISTAKES = 3              # sudoku.com 과 같이 세 번 틀리면 끝 (기본값)
+# 몇 번 틀리면 끝낼지 고를 수 있다. 0 은 제한 없음 — 틀린 칸은 그대로 빨갛게
+# 남으니, 끝나지 않을 뿐 실수를 눈감아 주는 것은 아니다.
+SUD_MISTAKE_CHOICES = [1, 3, 5, 0]
 SUD_ALL = frozenset(range(1, 10))
 
 # 난이도 여섯 단계.
@@ -3270,8 +3319,27 @@ class SudokuGame:
         self.state = "play"
         self.over = False
         self.solved = False
+        self.clear_ms = 0.0            # 다 풀기까지 걸린 시간
         self.msg = ""
         self.msg_t = 0.0
+
+    @property
+    def limit(self):
+        """몇 번 틀리면 끝인지. 0 이면 제한이 없다.
+
+        설정을 그때그때 읽는다. 판을 새로 만들지 않고도 제한을 바꿀 수 있고,
+        이미 그만큼 틀린 상태에서 제한을 줄이면 다음 실수에서 끝난다.
+        """
+        try:
+            n = int(self.opt("mistakes"))
+        except (TypeError, ValueError):
+            n = SUD_MISTAKES
+        return max(0, n)
+
+    def mistake_text(self):
+        """"2 / 3" 또는 제한이 없으면 "2" 만."""
+        return ("%d / %d" % (self.mistakes, self.limit) if self.limit
+                else str(self.mistakes))
 
     def _first_empty(self):
         for i in range(81):
@@ -3341,8 +3409,8 @@ class SudokuGame:
             if not was_filled:
                 self.filled += 1
             self.mistakes += 1
-            self.flash(tr("실수 %d / %d") % (self.mistakes, SUD_MISTAKES))
-            if self.mistakes >= SUD_MISTAKES:
+            self.flash(tr("실수 %s") % self.mistake_text())
+            if self.limit and self.mistakes >= self.limit:
                 self.state = "over"
                 self.over = True
 
@@ -3414,6 +3482,8 @@ class SudokuGame:
         self.solved = True
         self.over = True
         self.state = "over"
+        # 끝난 뒤에는 시계가 멈추므로 elapsed 가 그대로 "시작부터 클리어까지"다.
+        self.clear_ms = self.elapsed
         self.score = self.final_score()
         self.flash(tr("완성!"))
 
@@ -3459,9 +3529,88 @@ class SudokuGame:
             if self.msg_t == 0:
                 self.msg = ""
 
-    def time_text(self):
-        t = int(self.elapsed // 1000)
+    def time_text(self, ms=None):
+        t = int((self.elapsed if ms is None else ms) // 1000)
         return "%d:%02d" % (t // 60, t % 60)
+
+
+def sudoku_dump(g):
+    """풀던 판을 그대로 담는다 (끝난 판은 담지 않는다).
+
+    되돌리기 기록은 담지 않는다. 판을 이어 푸는 데는 필요 없는데 크기만
+    커지고, 앱을 껐다 켠 뒤에 "한 수 전"이 무엇인지도 모호하다.
+    """
+    if g.over or not any(g.grid[i] != g.puzzle[i] for i in range(81)):
+        return None               # 끝났거나, 아직 한 수도 안 둔 판
+    return {
+        "v": 1,
+        "level": g.level,
+        "tech": g.tech,
+        "puzzle": list(g.puzzle),
+        "answer": list(g.answer),
+        "grid": list(g.grid),
+        "notes": [sorted(n) for n in g.notes],
+        "wrong": sorted(g.wrong),
+        "mistakes": g.mistakes,
+        "hints": g.hints,
+        "cursor": g.cursor,
+        "note_mode": g.note_mode,
+        "elapsed": int(g.elapsed),
+    }
+
+
+def sudoku_restore(g, d):
+    """담아 둔 판을 되살린다. 조금이라도 어긋나면 손대지 않고 물러난다."""
+    try:
+        if d.get("v") != 1:
+            return False
+        puzzle, answer, grid = d["puzzle"], d["answer"], d["grid"]
+        notes, wrong = d["notes"], d["wrong"]
+        if not all(isinstance(x, list) and len(x) == 81
+                   for x in (puzzle, answer, grid, notes)):
+            return False
+        if not all(isinstance(v, int) and 0 <= v <= 9
+                   for v in puzzle + answer + grid):
+            return False
+        if not sud_valid_solution(answer):
+            return False
+        # 주어진 숫자는 정답과 같아야 한다 — 딴 데서 온 파일이면 여기서 걸린다
+        if any(puzzle[i] and puzzle[i] != answer[i] for i in range(81)):
+            return False
+        if d.get("level") not in SUD_LEVEL_INFO:
+            return False
+    except (KeyError, TypeError, ValueError):
+        return False
+
+    g.level = d["level"]
+    g.tech = int(d.get("tech", 0))
+    g.puzzle, g.answer = list(puzzle), list(answer)
+    g.grid = list(grid)
+    g.given = [v != 0 for v in puzzle]
+    g.notes = [set(v for v in n if isinstance(v, int) and 1 <= v <= 9)
+               for n in notes]
+    # 틀린 칸은 저장값을 믿지 않고 판에서 다시 센다 — 늘 판과 맞는다
+    g.wrong = {i for i in range(81)
+               if g.grid[i] and not g.given[i] and g.grid[i] != g.answer[i]}
+    g.filled = sum(1 for v in g.grid if v)
+    g.mistakes = max(0, int(d.get("mistakes", 0)))
+    g.hints = max(0, int(d.get("hints", 0)))
+    g.cursor = d["cursor"] if isinstance(d.get("cursor"), int) and         0 <= d["cursor"] < 81 else g._first_empty()
+    g.note_mode = bool(d.get("note_mode"))
+    g.elapsed = float(max(0, int(d.get("elapsed", 0))))
+    g.undo_stack = []
+    g.score = 0
+    g.state = "play"
+    g.over = g.solved = False
+    g.clear_ms = 0.0
+    return True
+
+
+def sud_valid_solution(cells):
+    """완성된 판인지 — 모든 줄·칸·박스에 1~9 가 한 번씩."""
+    if any(not (1 <= v <= 9) for v in cells):
+        return False
+    return all(len({cells[i] for i in unit}) == SUD_N for unit in SUD_UNITS)
 
 
 # =============================================================== 스도쿠 화면
@@ -3594,19 +3743,36 @@ class SudokuBoard(QWidget):
         elif g.over:
             self._veil(p)
             if g.solved:
-                self._center_text(p, tr("완성!"), c * 0.66, self.height() * 0.40,
+                self._center_text(p, tr("완성!"), c * 0.62, self.height() * 0.34,
                                   QColor("#9cf0a6"))
-                self._center_text(p, tr("%s · %s점") % (g.time_text(),
-                                                   format(g.score, ",")),
-                                  c * 0.38, self.height() * 0.50,
+                self._center_text(p, tr("걸린 시간 %s")
+                                  % g.time_text(g.clear_ms),
+                                  c * 0.44, self.height() * 0.45,
                                   QColor("#ffffff"))
+                best = -int(self.win.cfg.rec.get("best_time_" + g.level, 0))
+                secs = int(g.clear_ms // 1000)
+                if best <= 0 or secs <= best:
+                    tail = tr("최고 기록!")
+                    tint = QColor("#ffd97a")
+                else:
+                    tail = tr("최고 %d:%02d") % (best // 60, best % 60)
+                    tint = QColor("#c9d1e0")
+                self._center_text(p, tail, c * 0.32, self.height() * 0.53, tint)
+                self._center_text(p, tr("%s점") % format(g.score, ","),
+                                  c * 0.32, self.height() * 0.61,
+                                  QColor("#c9d1e0"))
+                tail_y = 0.74
             else:
-                self._center_text(p, tr("실수 %d번") % SUD_MISTAKES, c * 0.60,
+                out = (tr("실수 1번") if g.limit == 1
+                       else tr("실수 %d번") % g.limit)
+                self._center_text(p, out, c * 0.60,
                                   self.height() * 0.42, QColor("#ff8a95"))
+                tail_y = 0.60
             self._center_text(p, tr("%s / %s 새 문제")
                               % (self.win.key_hint("new_game"),
                                  self.win.key_hint("restart")),
-                              c * 0.32, self.height() * 0.60, QColor("#c9d1e0"))
+                              c * 0.32, self.height() * tail_y,
+                              QColor("#c9d1e0"))
         p.end()
 
     def _veil(self, p):
@@ -3763,12 +3929,24 @@ def sudoku_settings_tab(dlg):
         lambda i: dlg._set_game("level", level.itemData(i)))
     form.addRow(tr("난이도"), level)
 
+    miss = QComboBox()
+    for n in SUD_MISTAKE_CHOICES:
+        miss.addItem(tr("제한 없음") if n == 0 else tr("%d번") % n, n)
+    cur_m = w.cfg.opt("mistakes")
+    miss.setCurrentIndex(SUD_MISTAKE_CHOICES.index(cur_m)
+                         if cur_m in SUD_MISTAKE_CHOICES else 1)
+    miss.currentIndexChanged.connect(
+        lambda i: dlg._set_game("mistakes", miss.itemData(i)))
+    form.addRow(tr("실수 허용"), miss)
+
     note = QLabel(
-        tr("sudoku.com 방식이다. 실수 3번이면 끝, 메모(연필)·힌트·되돌리기가 있고,\n"
+        tr("sudoku.com 방식이다. 메모(연필)·힌트·되돌리기가 있고,\n"
         "숫자를 넣으면 같은 줄·칸·박스의 그 숫자 메모가 자동으로 지워진다.\n"
         "고른 칸의 줄·칸·박스와 같은 숫자를 함께 밝게 보여 준다.\n"
         "난이도는 주어진 숫자 개수와 풀이에 필요한 기법으로 가른다.\n"
-        "난이도를 바꾸면 다음 문제부터 적용된다 (F2 / R 로 새 문제)."))
+        "난이도를 바꾸면 다음 문제부터 적용된다 (F2 / R 로 새 문제).\n"
+        "실수 허용 횟수는 지금 풀던 판에도 바로 적용된다.\n"
+        "풀던 판은 앱을 껐다 켜도 그대로 이어서 푼다."))
     note.setWordWrap(True)
     form.addRow(tr("규칙"), note)
     return page
@@ -3776,7 +3954,8 @@ def sudoku_settings_tab(dlg):
 
 def sudoku_stats(win, g, compact):
     left = 81 - g.filled
-    info = tr("%s · 실수 %d/%d") % (g.time_text(), g.mistakes, SUD_MISTAKES)
+    info = tr("%s · 실수 %s") % (g.time_text(g.clear_ms if g.solved else None),
+                                g.mistake_text())
     if g.msg:
         info = g.msg              # 판을 가리는 대신 상단바에 띄운다
     # 시간 기록은 음수로 담아 둔다 (창은 큰 값으로만 갱신하므로, 음수로 넣어야
@@ -3788,35 +3967,39 @@ def sudoku_stats(win, g, compact):
         return (tr("<b>%s</b>"
                 "<br>%s"
                 "<br><br>남은 <b>%d</b>"
-                "<br>실수 <b>%d</b>/%d"
+                "<br>실수 <b>%s</b>"
                 "<br>힌트 <b>%d</b>"
                 "<br><br>최고 <b>%s</b>")
-                % (g.time_text(), tr(SUD_LEVEL_LABEL.get(g.level, g.level)),
-                   left, g.mistakes, SUD_MISTAKES, g.hints, best_txt), info)
-    return (tr("시간<br><b>%s</b>"
+                % (g.time_text(g.clear_ms if g.solved else None),
+                   tr(SUD_LEVEL_LABEL.get(g.level, g.level)),
+                   left, g.mistake_text(), g.hints, best_txt), info)
+    # 다 풀었으면 시계는 멈춰 있으니, 그대로 "시작부터 클리어까지" 걸린 시간이다
+    time_row = (tr("걸린 시간<br><b>%s</b>") % g.time_text(g.clear_ms)
+                if g.solved else tr("시간<br><b>%s</b>") % g.time_text())
+    return (tr("%s"
             "<br><br>난이도<br><b>%s</b>"
             "<br>필요 기법<br><b>%s</b>"
             "<br><br>남은 칸 <b>%d</b>"
-            "<br>실수 <b>%d</b> / %d"
+            "<br>실수 <b>%s</b>"
             "<br>힌트 <b>%d</b>"
             "<br><br>최고 기록<br><b>%s</b>")
-            % (g.time_text(), tr(SUD_LEVEL_LABEL.get(g.level, g.level)),
-               tr(SUD_TECH_NAME.get(g.tech, "?")), left, g.mistakes,
-               SUD_MISTAKES, g.hints, best_txt), info)
+            % (time_row, tr(SUD_LEVEL_LABEL.get(g.level, g.level)),
+               tr(SUD_TECH_NAME.get(g.tech, "?")), left, g.mistake_text(),
+               g.hints, best_txt), info)
 
 
 def sudoku_records(g):
     """다 푼 경우에만 기록한다. 시간은 짧을수록 좋으므로 따로 다룬다."""
     if not g.solved:
         return {}
-    secs = max(1, int(g.elapsed // 1000))
+    secs = max(1, int(g.clear_ms // 1000))
     return {"best": g.score, "best_time_" + g.level: -secs}
 
 
 SUDOKU = register_game(GameSpec(
     key="sudoku",
     label="스도쿠",
-    defaults={"level": "easy"},
+    defaults={"level": "easy", "mistakes": SUD_MISTAKES},
     engine=SudokuGame,
     board=SudokuBoard,
     side=SudokuPad,
@@ -3827,6 +4010,8 @@ SUDOKU = register_game(GameSpec(
                 + ["num_%d" % n for n in range(1, 10)]),
     records=sudoku_records,
     wants_mouse=True,
+    dump=sudoku_dump,
+    restore=sudoku_restore,
 ))
 
 
@@ -3975,6 +4160,8 @@ class SettingsDialog(QDialog):
         tabs.addTab(self._keys_tab(), tr("단축키"))
 
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        # 표준 버튼 글은 Qt 가 제 나름의 언어로 넣는다 — 앱 언어에 맞춘다
+        buttons.button(QDialogButtonBox.Close).setText(tr("닫기"))
         buttons.rejected.connect(self.accept)
 
         lay = QVBoxLayout(self)
@@ -4247,6 +4434,8 @@ class PuyoWindow(QWidget):
 
         self.spec = cfg.spec
         self.game = self.spec.engine(cfg.opt)
+        self._resumed = self._load_save()   # 껐을 때 풀던 판이 있으면 이어서
+        self._save_due = 0.0
 
         self.setObjectName("puyoRoot")
         self.setWindowTitle(cfg.s["disguise_title"])
@@ -4824,6 +5013,29 @@ class PuyoWindow(QWidget):
             QTimer.singleShot(0, self.panic_hide)
         super().changeEvent(event)
 
+    # ------------------------------------------------------------ 이어하기
+    def _load_save(self):
+        """저장해 둔 판을 지금 게임에 되살린다. 없거나 어긋나면 새 판 그대로."""
+        if not self.spec.resumable:
+            return False
+        data = self.cfg.take_save(self.spec.key)
+        if not data:
+            return False
+        try:
+            return bool(self.spec.restore(self.game, data))
+        except Exception:
+            # 저장이 깨졌다고 앱이 안 뜨면 안 된다 — 새 판으로 간다
+            return False
+
+    def _stash_save(self):
+        """지금 판을 설정에 담아 둔다 (파일로 쓰는 것은 save_state 가 한다)."""
+        if not self.spec.resumable:
+            return
+        try:
+            self.cfg.put_save(self.spec.key, self.spec.dump(self.game))
+        except Exception:
+            self.cfg.put_save(self.spec.key, None)
+
     # ------------------------------------------------------------- 게임 진행
     def _on_tick(self):
         import time
@@ -4839,6 +5051,13 @@ class PuyoWindow(QWidget):
             self.game.update(dt)
             if self.game.over and not before_over:
                 self._record_best()
+            # 오래 붙들고 푸는 판은 틈틈이 담아 둔다. 갑자기 꺼져도 몇 초치만
+            # 잃는다. 파일 쓰기는 save_timer 가 모아서 한 번만 한다.
+            if self.spec.resumable:
+                self._save_due -= dt
+                if self._save_due <= 0:
+                    self._save_due = 10000.0
+                    self.schedule_save()
         if self.isVisible():
             self.board.update()
             if self.next_view is not None:
@@ -4846,10 +5065,16 @@ class PuyoWindow(QWidget):
             self._update_stats()
 
     def _record_best(self):
-        """이 게임의 기록만 큰 값으로 갱신한다."""
+        """이 게임의 기록만 큰 값으로 갱신한다.
+
+        처음 세우는 기록은 견주지 않고 그대로 받는다. 시간 기록은 짧을수록
+        좋으라고 음수로 담는데(sudoku_records 참고), 없는 값을 0 으로 치고
+        max() 를 걸면 0 이 이겨서 최고 기록이 영영 안 남는다.
+        """
         rec = self.cfg.rec
         for name, value in self.spec.records(self.game).items():
-            rec[name] = max(int(rec.get(name, 0)), int(value))
+            value = int(value)
+            rec[name] = value if name not in rec else max(int(rec[name]), value)
         self.save_state()
 
     def switch_game(self, key):
@@ -4861,9 +5086,12 @@ class PuyoWindow(QWidget):
             return
         if self.game.score:
             self._record_best()
+        self._stash_save()              # 떠나는 게임의 판을 담아 두고
         self.cfg.set_game(key)
         self.spec = self.cfg.spec
         self.game = self.spec.engine(self.cfg.opt)
+        self._resumed = self._load_save()   # 돌아온 게임의 판을 되살린다
+        self._save_due = 0.0
 
         self.mid.removeWidget(self.board)
         self.board.setParent(None)
@@ -4884,7 +5112,8 @@ class PuyoWindow(QWidget):
         self.paused = (not self.isVisible()) and bool(self.cfg.s["pause_on_hide"])
         self.rebuild_keymap()
         self.resync_size()
-        self.flash(tr("%s 시작") % tr(self.spec.label))
+        self.flash(tr("이어서 풀기") if self._resumed
+                   else tr("%s 시작") % tr(self.spec.label))
         self.schedule_save()
 
     def new_game(self):
@@ -5045,6 +5274,7 @@ class PuyoWindow(QWidget):
         # 화면 밖 좌표는 저장하지 않는다 — 다음 실행에서 창을 못 찾게 된다
         p = self.sane_pos(self.x(), self.y())
         self.cfg.s["pos"] = [p.x(), p.y()]
+        self._stash_save()
         self.cfg.save()
 
     def closeEvent(self, event):
@@ -5109,6 +5339,8 @@ def main():
     app.aboutToQuit.connect(window.hotkeys.clear)
 
     window.show()
+    if window._resumed:
+        window.flash(tr("이어서 풀기"))
     return app.exec_()
 
 
