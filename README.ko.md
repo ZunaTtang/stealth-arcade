@@ -2,6 +2,9 @@
 
 > English: [README.md](README.md)
 
+**[StealthArcade.exe 내려받기](https://github.com/ZunaTtang/stealth-arcade/releases/latest)**
+— 설치도, 파이썬도 필요 없다. 윈도우 전용.
+
 Windows / PyQt5 단일 파일 낙하 퍼즐. **숨기기**를 중심으로 만든 앱입니다.
 **뿌요뿌요 · 테트리스 · 스도쿠 · 지뢰찾기** 네 가지가 들어 있고, 창을 꺼내지 않고
 **트레이 아이콘 우클릭**만으로도 바로 갈아끼울 수 있습니다.

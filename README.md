@@ -9,6 +9,11 @@ a tray icon that keeps the game alive while nothing is on screen.
 
 Single file, single dependency (PyQt5). No install, no account, no network.
 
+[![Download](https://img.shields.io/github/v/release/ZunaTtang/stealth-arcade?label=download%20.exe&style=flat-square)](https://github.com/ZunaTtang/stealth-arcade/releases/latest)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+
+**[Download StealthArcade.exe](https://github.com/ZunaTtang/stealth-arcade/releases/latest)** — no install, no Python. Windows only.
+
 > 한국어 설명: [README.ko.md](README.ko.md)
 
 ![Playing over a document, then hiding with Esc and coming back](docs/hide.gif)
@@ -37,6 +42,9 @@ every rule below exists because a game that vanishes badly is worse than no game
 - **Closing the window hides it.** Quitting is a deliberate act (`Ctrl+Alt+Q`).
 
 ## Quick start
+
+Grab the [prebuilt exe](https://github.com/ZunaTtang/stealth-arcade/releases/latest)
+and run it, or from source:
 
 ```bash
 pip install PyQt5
