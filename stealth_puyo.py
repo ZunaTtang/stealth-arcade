@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Stealth Puyo  -  Windows / PyQt5 단일 파일 뿌요뿌요
+Stealth Arcade  -  Windows / PyQt5 단일 파일 퍼즐 모음
 
 설치 :  pip install PyQt5
 실행 :  python stealth_puyo.py
@@ -547,7 +547,7 @@ COMMON_DEFAULTS = {
     "pause_on_hide": True,        # 숨기면 자동 일시정지
     "hide_on_blur": False,        # 포커스를 잃으면 자동으로 숨기기
     # ---- 표시 언어 ----
-    "lang": "ko",                 # ko | en
+    "lang": "en",                 # ko | en — 처음 켤 때의 언어
     # ---- 공통 게임 ----
     "speed": 1.0,                 # 낙하 속도 배율
     # ---- 위치 ----
@@ -6438,7 +6438,7 @@ def main():
     QLocalServer.removeServer(IPC_KEY)
 
     cfg = Config()
-    set_language(cfg.s.get("lang", "ko"))
+    set_language(cfg.s.get("lang", COMMON_DEFAULTS["lang"]))
     window = PuyoWindow(cfg)
 
     server = QLocalServer(app)

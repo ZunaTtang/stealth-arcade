@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""Stealth Puyo 빌드 설정.
+"""Stealth Arcade 빌드 설정.
 
     python -m PyInstaller --noconfirm Notepad.spec
 

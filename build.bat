@@ -1,5 +1,5 @@
 @echo off
-REM Stealth Puyo - build script. Output: dist\Notepad.exe (~24MB, no console)
+REM Stealth Arcade - build script. Output: dist\Notepad.exe (~24MB, no console)
 REM
 REM Always build from Notepad.spec. Passing stealth_puyo.py to PyInstaller
 REM makes it overwrite Notepad.spec, losing the Qt module exclusions that
