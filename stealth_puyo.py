@@ -2246,28 +2246,26 @@ SUD_MISTAKES = 3              # sudoku.com 과 같이 세 번 틀리면 끝
 SUD_ALL = frozenset(range(1, 10))
 
 # 난이도 여섯 단계.
-#   givens  처음에 주어지는 숫자 개수 범위 — 난이도를 가르는 주된 축이다
-#   need    이 난이도에서 최소한 필요한 풀이 기법 단계
-#   cap     허용하는 가장 어려운 단계 (None 이면 제한 없음)
+#   givens  처음에 주어지는 숫자 개수 범위
+#   need    이 난이도를 풀려면 최소한 여기까지는 써야 한다
+#   cap     여기보다 어려우면 그 난이도가 아니다
 #
-# 기법 단계는 0 단일값 / 1 후보 가두기 / 2 쌍·삼중 / 3 X-Wing / 4 그 이상이다.
-# 실제로 만들어 보면 "부분집합이 가장 어려운 기법"인 판(2·3단계)은 거의 나오지
-# 않는다 — 부분집합이 필요할 정도면 대개 사슬 기법까지 필요해진다. 그래서
-# 기법 조건은 확실히 갈리는 곳(쉬움·보통은 단일값만으로, 익스트림은 X-Wing
-# 으로도 안 풀림)에만 걸고, 나머지는 주어진 숫자 개수로 가른다.
+# 단계는 SudSolver 가 실제로 풀어 보고 매긴다 (SUD_TECH_NAME 참고).
+# 익스트림은 5단계 — 포싱 체인(가설 검증)까지 써야 풀리지만, 그 기법으로는
+# 반드시 풀린다. 6단계(논리로 못 품)는 어느 난이도에서도 내보내지 않는다.
+# 아래 범위는 실제로 20판씩 만들어 보고 맞춘 값이다. 주어진 숫자가 적을수록
+# 필요한 기법도 자연히 올라가므로, 두 축이 서로 어긋나지 않게 잡았다.
 SUD_LEVELS = [
     ("easy",    "쉬움",     (40, 45), 0, 0),
     ("medium",  "보통",     (34, 38), 0, 0),
-    ("hard",    "어려움",   (30, 33), 0, None),
-    ("expert",  "전문가",   (27, 29), 0, None),
-    ("master",  "마스터",   (25, 26), 1, None),
-    ("extreme", "익스트림", (22, 24), 4, None),
+    ("hard",    "어려움",   (30, 33), 0, 2),
+    ("expert",  "전문가",   (27, 30), 1, 4),
+    ("master",  "마스터",   (25, 28), 3, 5),
+    ("extreme", "익스트림", (22, 26), 5, 5),
 ]
 SUD_LEVEL_KEYS = [k for k, _l, _g, _n, _c in SUD_LEVELS]
 SUD_LEVEL_LABEL = {k: l for k, l, _g, _n, _c in SUD_LEVELS}
 SUD_LEVEL_INFO = {k: (g, n, c) for k, _l, g, n, c in SUD_LEVELS}
-SUD_TECH_NAME = {0: "단일값", 1: "후보 가두기", 2: "쌍·삼중",
-                 3: "X-Wing", 4: "그 이상"}
 # 난이도마다 기본 점수 (다 풀었을 때). 시간·실수·힌트로 깎인다.
 SUD_BASE_SCORE = {"easy": 1000, "medium": 2000, "hard": 3500,
                   "expert": 5000, "master": 7000, "extreme": 10000}
@@ -2427,156 +2425,356 @@ def sud_candidates(grid):
     return cand
 
 
-def sud_grade(grid):
-    """사람이 쓰는 기법만으로 풀어 보고, 가장 어려웠던 단계를 돌려준다.
+class SudSolver:
+    """사람이 쓰는 기법만으로 푸는 풀이기 (추측으로 훑지 않는다).
 
-    0 단일값 / 1 후보 가두기 / 2 쌍·삼중 / 3 X-Wing.
-    끝까지 못 풀면 4 (그 이상의 기법이나 추측이 필요하다는 뜻).
-
-    후보 목록은 한 번만 만들고 계속 들고 간다. 매번 새로 계산하면 가두기·쌍
-    으로 지운 후보가 그대로 되살아나, 그 기법들이 아무 일도 하지 않은 것과
-    같아진다.
+    쉬운 것부터 쓰고, 뭔가 지워지면 다시 단일값부터 본다.
+        singles     단일값 (naked / hidden single)
+        locked      후보 가두기 (pointing / claiming)
+        subset      드러난·숨은 쌍·삼중·사중
+        xwing       X-Wing
+        swordfish   Swordfish
+        xywing      XY-Wing
+        ur          유니크 렉탱글 (해가 하나뿐이라는 사실을 근거로 지운다)
+        chain       포싱 체인 — 후보 하나를 가정하고 단일값으로 끝까지 밀어
+                    본다. 모순이 나오면 그 후보를 지우고(가설 검증), 두 갈래가
+                    같은 칸에 같은 값을 강요하면 그 값을 확정한다.
     """
-    work = list(grid)
-    cand = sud_candidates(work)
-    hardest = 0
 
-    def place(i, v):
-        work[i] = v
-        cand[i] = set()
+    STEPS = [("locked", "locked"), ("subset", "subset"),
+             ("xwing", "xwing"), ("swordfish", "swordfish"),
+             ("xywing", "xywing"), ("ur", "unique_rect"),
+             ("chain", "chain")]
+
+    def __init__(self, grid):
+        self.work = list(grid)
+        self.cand = [set() if grid[i] else set(SUD_ALL) for i in range(81)]
+        for i in range(81):
+            if grid[i]:
+                for p in SUD_PEERS[i]:
+                    self.cand[p].discard(grid[i])
+        self.used = {}
+
+    # ------------------------------------------------------------- 기본
+    def _place(self, i, v):
+        self.work[i] = v
+        self.cand[i] = set()
         for p in SUD_PEERS[i]:
-            cand[p].discard(v)
+            self.cand[p].discard(v)
 
-    def singles():
-        """확정할 수 있는 칸을 모두 채운다. 하나라도 채웠으면 True."""
+    def solved(self):
+        return all(self.work)
+
+    def broken(self):
+        return any(not self.work[i] and not self.cand[i] for i in range(81))
+
+    def singles(self):
+        did = again = True
         did = False
-        again = True
         while again:
             again = False
             for i in range(81):
-                if not work[i] and len(cand[i]) == 1:
-                    place(i, next(iter(cand[i])))
+                if not self.work[i] and len(self.cand[i]) == 1:
+                    self._place(i, next(iter(self.cand[i])))
                     did = again = True
             for unit in SUD_UNITS:
                 for v in SUD_ALL:
-                    spots = [i for i in unit if not work[i] and v in cand[i]]
+                    spots = [i for i in unit
+                             if not self.work[i] and v in self.cand[i]]
                     if len(spots) == 1:
-                        place(spots[0], v)
+                        self._place(spots[0], v)
                         did = again = True
         return did
 
-    def broken():
-        return any(not work[i] and not cand[i] for i in range(81))
-
-    singles()
-    while True:
-        if all(work):
-            return hardest
-        if broken():
-            return 4
-
-        # 1) 후보 가두기 — 박스 안에서 한 줄에만 남으면 그 줄 바깥에서 지운다.
-        #    반대로 한 줄이 한 박스 안에만 남으면 그 박스의 나머지에서 지운다.
-        changed = False
+    # ------------------------------------------------------------ 기법들
+    def locked(self):
+        hit = False
         for box in SUD_BOXES:
             for v in SUD_ALL:
-                spots = [i for i in box if not work[i] and v in cand[i]]
+                spots = [i for i in box
+                         if not self.work[i] and v in self.cand[i]]
                 if not spots or len(spots) > 3:
                     continue
                 rows = {i // SUD_N for i in spots}
                 cols = {i % SUD_N for i in spots}
-                line = None
                 if len(rows) == 1:
                     line = SUD_ROWS[next(iter(rows))]
                 elif len(cols) == 1:
                     line = SUD_COLS[next(iter(cols))]
-                if line is None:
+                else:
                     continue
                 for i in line:
-                    if i not in box and not work[i] and v in cand[i]:
-                        cand[i].discard(v)
-                        changed = True
+                    if i not in box and v in self.cand[i]:
+                        self.cand[i].discard(v)
+                        hit = True
         for line in SUD_ROWS + SUD_COLS:
             for v in SUD_ALL:
-                spots = [i for i in line if not work[i] and v in cand[i]]
+                spots = [i for i in line
+                         if not self.work[i] and v in self.cand[i]]
                 if not spots or len(spots) > 3:
                     continue
-                boxes = {(i // SUD_N // SUD_BOX) * SUD_BOX
-                         + (i % SUD_N) // SUD_BOX for i in spots}
-                if len(boxes) != 1:
+                bs = {(i // SUD_N // SUD_BOX) * SUD_BOX
+                      + (i % SUD_N) // SUD_BOX for i in spots}
+                if len(bs) != 1:
                     continue
-                for i in SUD_BOXES[next(iter(boxes))]:
-                    if i not in line and not work[i] and v in cand[i]:
-                        cand[i].discard(v)
-                        changed = True
-        if changed:
-            hardest = max(hardest, 1)
-            singles()
-            continue
+                for i in SUD_BOXES[next(iter(bs))]:
+                    if i not in line and v in self.cand[i]:
+                        self.cand[i].discard(v)
+                        hit = True
+        return hit
 
-        # 2) 드러난 쌍·삼중과 숨은 쌍·삼중
-        changed = False
+    def subset(self):
+        hit = False
         for unit in SUD_UNITS:
-            empties = [i for i in unit if not work[i]]
-            for size in (2, 3):
+            empties = [i for i in unit if not self.work[i]]
+            placed = {self.work[i] for i in unit if self.work[i]}
+            for size in (2, 3, 4):
                 for combo in itertools.combinations(empties, size):
+                    if any(len(self.cand[i]) < 2 for i in combo):
+                        continue
                     union = set()
                     for i in combo:
-                        union |= cand[i]
+                        union |= self.cand[i]
                     if len(union) != size:
                         continue
                     for i in empties:
-                        if i not in combo and cand[i] & union:
-                            cand[i] -= union
-                            changed = True
-                for vals in itertools.combinations(sorted(SUD_ALL), size):
-                    vset = set(vals)
-                    spots = [i for i in empties if cand[i] & vset]
+                        if i in combo:
+                            continue
+                        if self.cand[i] & union:
+                            self.cand[i] -= union
+                            hit = True
+                # 숨은 부분집합. 이미 그 줄에 놓인 숫자를 끼워 넣으면 엉뚱한
+                # 칸을 지우게 되므로, 아직 안 놓인 숫자 중에서만 고른다.
+                for vals in itertools.combinations(sorted(SUD_ALL - placed),
+                                                   size):
+                    vs = set(vals)
+                    spots = [i for i in empties if self.cand[i] & vs]
                     if len(spots) != size:
                         continue
-                    if any(not (cand[i] & vset) for i in spots):
+                    if any(not any(v in self.cand[i] for i in spots)
+                           for v in vs):
                         continue
-                    if any(cand[i] - vset for i in spots):
-                        for i in spots:
-                            cand[i] &= vset
-                        changed = True
-        if changed:
-            hardest = max(hardest, 2)
-            singles()
-            continue
+                    for i in spots:
+                        if self.cand[i] - vs:
+                            self.cand[i] &= vs
+                            hit = True
+        return hit
 
-        # 3) X-Wing
-        changed = False
+    def _fish(self, size):
+        hit = False
         for lines, other, keyof in ((SUD_ROWS, SUD_COLS, lambda i: i % SUD_N),
                                     (SUD_COLS, SUD_ROWS, lambda i: i // SUD_N)):
             for v in SUD_ALL:
                 spots = {}
                 for li, line in enumerate(lines):
-                    s2 = [i for i in line if not work[i] and v in cand[i]]
-                    if len(s2) == 2:
-                        spots[li] = s2
-                for a, b in itertools.combinations(sorted(spots), 2):
-                    pa, pb = spots[a], spots[b]
-                    ka = sorted(keyof(i) for i in pa)
-                    kb = sorted(keyof(i) for i in pb)
-                    if ka != kb:
+                    s = [i for i in line
+                         if not self.work[i] and v in self.cand[i]]
+                    if 2 <= len(s) <= size:
+                        spots[li] = s
+                for combo in itertools.combinations(sorted(spots), size):
+                    keys = set()
+                    for li in combo:
+                        keys |= {keyof(i) for i in spots[li]}
+                    if len(keys) != size:
                         continue
-                    for k in ka:
+                    inside = {i for li in combo for i in spots[li]}
+                    for k in keys:
                         for i in other[k]:
-                            if i in pa or i in pb:
-                                continue
-                            if not work[i] and v in cand[i]:
-                                cand[i].discard(v)
-                                changed = True
-        if changed:
-            hardest = max(hardest, 3)
-            singles()
-            continue
+                            if i not in inside and v in self.cand[i]:
+                                self.cand[i].discard(v)
+                                hit = True
+        return hit
 
-        return 4          # 더 쓸 기법이 없다
+    def xwing(self):
+        return self._fish(2)
+
+    def swordfish(self):
+        return self._fish(3)
+
+    def xywing(self):
+        hit = False
+        bi = [i for i in range(81)
+              if not self.work[i] and len(self.cand[i]) == 2]
+        for pivot in bi:
+            if len(self.cand[pivot]) != 2:
+                continue                  # 앞선 지우기로 줄었을 수 있다
+            a, b = sorted(self.cand[pivot])
+            wings = [i for i in bi
+                     if i in SUD_PEERS[pivot] and len(self.cand[i]) == 2]
+            for w1, w2 in itertools.combinations(wings, 2):
+                c1, c2 = self.cand[w1], self.cand[w2]
+                if len(c1) != 2 or len(c2) != 2 or c1 == c2:
+                    continue
+                inter = c1 & c2
+                if len(inter) != 1:
+                    continue
+                c = next(iter(inter))
+                if c in (a, b):
+                    continue
+                if not ((c1 == {a, c} and c2 == {b, c})
+                        or (c1 == {b, c} and c2 == {a, c})):
+                    continue
+                for i in SUD_PEERS[w1] & SUD_PEERS[w2]:
+                    if i != pivot and c in self.cand[i]:
+                        self.cand[i].discard(c)
+                        hit = True
+        return hit
+
+    def unique_rect(self):
+        """유니크 렉탱글 Type 1.
+
+        두 줄·두 칸이 만드는 네 모서리가 박스 두 개에 걸치고 그중 셋이 똑같은
+        두 후보 {a,b} 만 가지면, 네 번째 칸에서 a 와 b 를 지운다. 남겨 두면
+        a·b 를 서로 바꾼 두 번째 해가 생겨 "해가 하나뿐"이라는 전제가 깨진다.
+        """
+        hit = False
+        for r1, r2 in itertools.combinations(range(SUD_N), 2):
+            for c1, c2 in itertools.combinations(range(SUD_N), 2):
+                corners = [r1 * SUD_N + c1, r1 * SUD_N + c2,
+                           r2 * SUD_N + c1, r2 * SUD_N + c2]
+                if any(self.work[i] for i in corners):
+                    continue
+                boxes = {(i // SUD_N // SUD_BOX) * SUD_BOX
+                         + (i % SUD_N) // SUD_BOX for i in corners}
+                if len(boxes) != 2:
+                    continue
+                pairs = [i for i in corners if len(self.cand[i]) == 2]
+                if len(pairs) != 3:
+                    continue
+                base = self.cand[pairs[0]]
+                if any(self.cand[i] != base for i in pairs):
+                    continue
+                extra = [i for i in corners if i not in pairs][0]
+                if not (base <= self.cand[extra]):
+                    continue
+                if len(self.cand[extra]) <= 2:
+                    continue
+                for v in list(base):
+                    if v in self.cand[extra]:
+                        self.cand[extra].discard(v)
+                        hit = True
+        return hit
+
+    # ---------------------------------------------------- 포싱 체인 (가설)
+    def _propagate(self, work, cand):
+        again = True
+        while again:
+            again = False
+            for i in range(81):
+                if work[i]:
+                    continue
+                if not cand[i]:
+                    return None                  # 모순
+                if len(cand[i]) == 1:
+                    v = next(iter(cand[i]))
+                    work[i] = v
+                    cand[i] = set()
+                    for p in SUD_PEERS[i]:
+                        cand[p].discard(v)
+                    again = True
+            for unit in SUD_UNITS:
+                for v in SUD_ALL:
+                    if any(work[i] == v for i in unit):
+                        continue
+                    spots = [i for i in unit if not work[i] and v in cand[i]]
+                    if not spots:
+                        return None              # 모순
+                    if len(spots) == 1:
+                        i = spots[0]
+                        work[i] = v
+                        cand[i] = set()
+                        for p in SUD_PEERS[i]:
+                            cand[p].discard(v)
+                        again = True
+        return work
+
+    def _assume(self, i, v):
+        work = list(self.work)
+        cand = [set(c) for c in self.cand]
+        work[i] = v
+        cand[i] = set()
+        for p in SUD_PEERS[i]:
+            cand[p].discard(v)
+        return self._propagate(work, cand)
+
+    def chain(self):
+        bi = [i for i in range(81)
+              if not self.work[i] and len(self.cand[i]) == 2]
+        # 이웃이 많은 칸부터 — 모순이 빨리 드러난다
+        bi.sort(key=lambda i: -sum(1 for p in SUD_PEERS[i] if not self.work[p]))
+        for i in bi[:28]:
+            if len(self.cand[i]) != 2:
+                continue
+            vals = sorted(self.cand[i])
+            outs = {}
+            dead = []
+            for v in vals:
+                got = self._assume(i, v)
+                if got is None:
+                    dead.append(v)
+                else:
+                    outs[v] = got
+            if dead and len(dead) < len(vals):
+                for v in dead:
+                    self.cand[i].discard(v)
+                return True
+            if len(outs) == 2:
+                wa, wb = outs[vals[0]], outs[vals[1]]
+                for j in range(81):
+                    if not self.work[j] and wa[j] and wa[j] == wb[j]:
+                        self._place(j, wa[j])
+                        return True
+        return False
+
+    # ------------------------------------------------------------- 실행
+    def solve(self, allow):
+        self.singles()
+        while True:
+            if self.solved():
+                return True
+            if self.broken():
+                return False
+            moved = False
+            for name, meth in self.STEPS:
+                if name not in allow:
+                    continue
+                if getattr(self, meth)():
+                    self.used[name] = self.used.get(name, 0) + 1
+                    self.singles()
+                    moved = True
+                    break
+            if not moved:
+                return False
 
 
-def sud_make_puzzle(level, tries=8, budget=4.0):
+# 난이도 등급 — 이 단계까지 써야 풀린다
+SUD_TIERS = [
+    (0, {"singles"}),
+    (1, {"singles", "locked"}),
+    (2, {"singles", "locked", "subset"}),
+    (3, {"singles", "locked", "subset", "xwing", "swordfish"}),
+    (4, {"singles", "locked", "subset", "xwing", "swordfish", "xywing", "ur"}),
+    (5, {"singles", "locked", "subset", "xwing", "swordfish", "xywing", "ur",
+         "chain"}),
+]
+SUD_TECH_NAME = {0: "단일값", 1: "후보 가두기", 2: "쌍·삼중",
+                 3: "X-Wing·Swordfish", 4: "XY-Wing·유니크 렉탱글",
+                 5: "포싱 체인", 6: "논리로 못 품"}
+
+
+def sud_grade(grid):
+    """쉬운 기법부터 더해 가며, 처음으로 풀리는 단계를 돌려준다.
+
+    6 이 나오면 여기 넣은 기법으로는 못 푼다는 뜻이다 (더 깊은 사슬이나
+    추측이 필요하다). 그런 문제는 내보내지 않는다.
+    """
+    for tier, allow in SUD_TIERS:
+        if SudSolver(grid).solve(allow):
+            return tier
+    return 6
+
+
+def sud_make_puzzle(level, tries=20, budget=6.0):
     """그 난이도에 맞는 문제를 만든다. (문제, 해답, 기법단계) 를 돌려준다.
 
     완성된 판에서 숫자를 하나씩 걷어내되, 해가 둘 이상이 되면 되돌린다.
@@ -2610,6 +2808,10 @@ def sud_make_puzzle(level, tries=8, budget=4.0):
             continue
 
         tech = sud_grade(puz)
+        if tech >= 6:
+            # 여기 넣은 기법으로 못 푸는 문제다. 사람이 추측으로 찍어야 하니
+            # 어느 난이도에서도 내보내지 않는다.
+            continue
         bad = 0
         if tech < need:
             bad += (need - tech) * 100
@@ -2623,6 +2825,23 @@ def sud_make_puzzle(level, tries=8, budget=4.0):
         if time.monotonic() > deadline:
             break
 
+    if best is None or best[3] >= 6:
+        # 시간 안에 하나도 못 만든 아주 드문 경우. 확실히 풀리는 판을 준다.
+        sol = sud_full_grid()
+        puz = list(sol)
+        order = list(range(81))
+        random.shuffle(order)
+        givens = 81
+        for i in order:
+            if givens <= 40:
+                break
+            keep = puz[i]
+            puz[i] = 0
+            if sud_solve_count(puz, 2) != 1:
+                puz[i] = keep
+            else:
+                givens -= 1
+        return puz, sol, sud_grade(puz)
     return best[1], best[2], best[3]
 
 
@@ -4182,7 +4401,10 @@ class PuyoWindow(QWidget):
 
     def switch_game(self, key):
         """게임을 갈아끼운다 — 창·은폐 계층은 그대로 두고 규칙과 화면만 바꾼다."""
-        if key not in GAMES or key == self.cfg.game:
+        # 설정이 아니라 지금 창이 들고 있는 게임과 견준다. 설정만 먼저 바뀐
+        # 상태에서 부르면, 설정 기준으로는 "이미 그 게임"이라 그냥 돌아가
+        # 버려서 규칙 객체와 설정이 어긋난다.
+        if key not in GAMES or key == self.spec.key:
             return
         if self.game.score:
             self._record_best()
