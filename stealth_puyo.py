@@ -375,6 +375,11 @@ TR = {
     "제한 없음": "No limit",
     "%d번": "%d",
     "이어서 풀기": "Resuming",
+    "일시정지 / 재개 (P)": "Pause / resume (P)",
+    "일시정지 / 재개": "Pause / resume",
+    "일시정지 (P)": "Pause (P)",
+    "재개 (P)": "Resume (P)",
+    "%s 또는 클릭으로 재개": "%s or click to resume",
     # ---- 지뢰찾기 ----
     "지뢰찾기": "Minesweeper",
     "초급": "Beginner",
@@ -525,6 +530,7 @@ COMMON_DEFAULTS = {
     "show_topbar": True,
     "show_panel": True,
     "show_ghost": True,           # 착지 위치 표시
+    "btn_pause": True,
     "btn_hide": True,
     "btn_settings": True,
     "btn_restart": True,
@@ -954,6 +960,16 @@ def tool_icon(kind, color, active=True):
         p.drawPath(path)
         p.setBrush(ink)
         p.drawEllipse(QPointF(10, 9), 1.8, 1.8)
+    elif kind == "pause":                   # 세로 막대 둘 = 멈추기
+        p.setBrush(ink)
+        p.setPen(Qt.NoPen)
+        p.drawRect(QRectF(6.4, 3.5, 2.6, 11))
+        p.drawRect(QRectF(11.2, 3.5, 2.6, 11))
+    elif kind == "play":                    # 삼각형 = 재개
+        p.setBrush(ink)
+        p.setPen(Qt.NoPen)
+        p.drawPolygon(*[QPointF(6.8, 3.2), QPointF(6.8, 14.8),
+                        QPointF(15.2, 9.0)])
     elif kind == "restart":                 # 원형 화살표 = 다시 시작
         p.drawArc(QRectF(4.5, 3.5, 11, 11), 40 * 16, 280 * 16)
         p.setBrush(ink)
@@ -3787,6 +3803,8 @@ class SudokuBoard(QWidget):
         return None
 
     def mousePressEvent(self, event):
+        if self.win.eat_click_while_paused(event):
+            return
         i = self.cell_at(event.pos())
         if i is None:
             event.ignore()
@@ -3911,7 +3929,8 @@ class SudokuBoard(QWidget):
             self._veil(p)
             self._center_text(p, tr("일시정지"), c * 0.62, self.height() * 0.47,
                               QColor("#ffffff"))
-            self._center_text(p, self.win.key_hint("pause") + tr(" 로 재개"),
+            self._center_text(p, tr("%s 또는 클릭으로 재개")
+                              % self.win.key_hint("pause"),
                               c * 0.32, self.height() * 0.56, QColor("#c9d1e0"))
         elif g.over:
             self._veil(p)
@@ -4047,6 +4066,8 @@ class SudokuPad(QWidget):
         return None
 
     def mousePressEvent(self, event):
+        if self.win.eat_click_while_paused(event):
+            return
         hit = self._hit(event.pos())
         if not hit:
             event.ignore()
@@ -4607,6 +4628,8 @@ class MineBoard(QWidget):
 
     # --------------------------------------------------------------- 마우스
     def mousePressEvent(self, event):
+        if self.win.eat_click_while_paused(event):
+            return
         i = self.cell_at(event.pos())
         if i is None:
             event.ignore()
@@ -4688,7 +4711,8 @@ class MineBoard(QWidget):
         if self.win.paused and not g.over:
             self._veil(p)
             self._center(p, tr("일시정지"), c * 0.9, 0.46, QColor("#ffffff"))
-            self._center(p, self.win.key_hint("pause") + tr(" 로 재개"),
+            self._center(p, tr("%s 또는 클릭으로 재개")
+                         % self.win.key_hint("pause"),
                          c * 0.46, 0.56, QColor("#c9d1e0"))
         elif g.over:
             self._veil(p)
@@ -5126,7 +5150,8 @@ class SettingsDialog(QDialog):
         holder = QWidget()
         holder.setLayout(icons)
         for key, label in (("btn_hide", tr("숨기기")), ("btn_settings", tr("설정")),
-                           ("btn_restart", tr("재시작"))):
+                           ("btn_restart", tr("재시작")),
+                           ("btn_pause", tr("일시정지 / 재개"))):
             chk = QCheckBox(label)
             chk.setChecked(bool(s[key]))
             chk.toggled.connect(lambda on, k=key: self._set_flag(k, on))
@@ -5380,6 +5405,7 @@ class PuyoWindow(QWidget):
 
         self.buttons = {}
         for kind, tip, slot in (
+                ("pause", tr("일시정지 / 재개 (P)"), self.toggle_pause),
                 ("restart", tr("새 게임 (F2 / R)"), self.new_game),
                 ("settings", tr("설정 (F1)"), self.open_settings),
                 ("hide", tr("숨기기 (Esc / Ctrl+Alt+Z)"), self.panic_hide)):
@@ -5396,7 +5422,7 @@ class PuyoWindow(QWidget):
         bar.setContentsMargins(4, 0, 2, 0)
         bar.setSpacing(1)
         bar.addWidget(self.info_label, 1)
-        for kind in ("restart", "settings", "hide"):
+        for kind in ("pause", "restart", "settings", "hide"):
             bar.addWidget(self.buttons[kind])
 
         # ---------------------------------------------------- 필드 / 패널
@@ -5516,7 +5542,8 @@ class PuyoWindow(QWidget):
         매 틱 새로 그리는 것(판·점수 칸·상단바)은 그냥 두면 알아서 바뀐다.
         트레이 메뉴와 버튼 설명처럼 한 번만 만드는 것들만 손보면 된다.
         """
-        for kind, tip in (("restart", "새 게임 (F2 / R)"),
+        for kind, tip in (("pause", "일시정지 / 재개 (P)"),
+                          ("restart", "새 게임 (F2 / R)"),
                           ("settings", "설정 (F1)"),
                           ("hide", "숨기기 (Esc / Ctrl+Alt+Z)")):
             if kind in self.buttons:
@@ -5749,10 +5776,16 @@ class PuyoWindow(QWidget):
                 "QPushButton { border: none; background: transparent; }"
                 "QPushButton:hover { background: %s; border-radius: 3px; }"
                 % hover.name())
-            btn.setIcon(tool_icon(kind, ink.name()))
+            # 멈춤 버튼은 지금 상태에 따라 모양이 바뀐다 — 멈춰 있으면 재생
+            # 삼각형을 보여 줘야 "누르면 다시 시작한다"가 읽힌다.
+            icon = kind
+            if kind == "pause":
+                icon = "play" if self.paused else "pause"
+            btn.setIcon(tool_icon(icon, ink.name()))
             btn.setVisible(bool(s.get({"hide": "btn_hide",
                                        "settings": "btn_settings",
-                                       "restart": "btn_restart"}[kind], True)))
+                                       "restart": "btn_restart",
+                                       "pause": "btn_pause"}[kind], True)))
         self.setWindowOpacity(float(s["opacity"]))
         if hasattr(self, "tray_menu"):
             sheet = menu_stylesheet(s["bg_color"])
@@ -5937,6 +5970,7 @@ class PuyoWindow(QWidget):
         """즉시 숨기기. 진행 중이던 판은 그대로 얼려 둔다."""
         if self.cfg.s["pause_on_hide"]:
             self.paused = True
+            self.refresh_pause_button()
         self.save_state()
         self.hide()
 
@@ -5955,7 +5989,30 @@ class PuyoWindow(QWidget):
             return
         self.paused = not self.paused
         self.flash(tr("일시정지") if self.paused else tr("재개"))
+        self.refresh_pause_button()
         self.board.update()
+        if self.next_view is not None:
+            self.next_view.update()
+
+    def refresh_pause_button(self):
+        """멈춤 버튼의 모양과 설명을 지금 상태에 맞춘다."""
+        btn = self.buttons.get("pause")
+        if btn is None:
+            return
+        btn.setIcon(tool_icon("play" if self.paused else "pause", "#e8ecf4"))
+        btn.setToolTip(tr("재개 (P)") if self.paused else tr("일시정지 (P)"))
+
+    def eat_click_while_paused(self, event):
+        """멈춰 있는 동안 판을 누르면 수를 두지 않고 다시 시작한다.
+
+        여태 키보드만 막고 마우스는 그냥 통과시켜서, 멈춰 놓고도 스도쿠 숫자가
+        써지고 지뢰찾기 칸이 열렸다. 겸사겸사 덮개 전체가 '재개' 버튼이 된다.
+        """
+        if not self.paused or self.game.over:
+            return False
+        self.toggle_pause()
+        event.accept()
+        return True
 
     def changeEvent(self, event):
         # 포커스를 잃으면 자동으로 숨긴다 — 설정 창을 여는 동안은 예외
@@ -6072,6 +6129,7 @@ class PuyoWindow(QWidget):
 
         # 숨어 있는 동안 트레이에서 바꿨다면 새 판을 얼려 둔다 (새 게임과 같은 규칙)
         self.paused = (not self.isVisible()) and bool(self.cfg.s["pause_on_hide"])
+        self.refresh_pause_button()
         self.rebuild_keymap()
         self.resync_size()
         self.flash(tr("이어서 풀기") if self._resumed
@@ -6085,6 +6143,7 @@ class PuyoWindow(QWidget):
         self.game.reset()
         # 숨어 있는 동안 전역 키로 재시작했다면 그대로 얼려 둔다
         self.paused = (not self.isVisible()) and bool(self.cfg.s["pause_on_hide"])
+        self.refresh_pause_button()
         self.flash(tr("새 게임"))
         self.resync_size()
 
@@ -6179,7 +6238,10 @@ class PuyoWindow(QWidget):
         dlg = SettingsDialog(self)
         style_dialog(dlg)
         dlg.exec_()
+        # 설정을 여는 동안만 멈춰 둔다. 그 사이 apply_style 이 돌면 버튼이
+        # 재생 모양으로 바뀌어 있으므로, 되돌린 뒤 모양도 맞춰 준다.
         self.paused = was_paused
+        self.refresh_pause_button()
         self._dialog_open = False
         self.save_state()
         self.activateWindow()
