@@ -373,6 +373,9 @@ TR = {
     "%d번": "%d",
     "이어서 풀기": "Resuming",
     "격자선 보이기": "Show grid",
+    "배경이 옅을 때 또렷하게": "Sharpen on see-through background",
+    "끄면 보조선과 받침 없이 예전처럼 그린다.":
+        "Turn off to draw as before, with no helper lines or text plates.",
     "격자선 진하기": "Grid strength",
     "격자선 ON": "Grid ON",
     "격자선 OFF": "Grid OFF",
@@ -471,6 +474,7 @@ COMMON_DEFAULTS = {
     "cell": 30,                   # 셀 한 변 픽셀 — 창 크기가 여기서 결정된다
     "bg_color": "#101418",
     "bg_alpha": 78,               # 0~255. 0 이면 '배경 지우기'
+    "visibility_aid": True,       # 배경이 옅을 때 보조선·받침을 넣을지
     "show_grid": True,            # 격자선 켜고 끄기
     "grid_alpha": 20,             # 격자선 진하기 (켜져 있을 때)
     "opacity": 0.94,              # 창 전체 투명도
@@ -798,7 +802,14 @@ def faint_bg(s):
 
 
 def faint_strength(s):
-    """0.0(안 옅음) ~ 1.0(완전 투명). 옅을수록 보조선을 세게 준다."""
+    """0.0(안 옅음) ~ 1.0(완전 투명). 옅을수록 보조선을 세게 준다.
+
+    아래의 모든 보조 — 격자 보조선, 판 테두리, 글자 받침 — 가 이 값 하나를
+    거친다. 그래서 여기서 0 을 돌려주면 보조를 넣기 전과 똑같이 그려진다.
+    가시성이 부담스러운 사람은 설정에서 통째로 끌 수 있다.
+    """
+    if not s.get("visibility_aid", True):
+        return 0.0
     a = int(s["bg_alpha"])
     if a >= FAINT_BG:
         return 0.0
@@ -1551,11 +1562,15 @@ class PuyoBoard(QWidget):
             lines += [(0, self.y_of(row), self.width(), self.y_of(row))
                       for row in range(1, ROWS + 1)]
             draw_lines(p, lines, grid_color(ga, lift), lift)
-        # 숨은 줄 경계 — 여기 넘어가면 위험하다는 표시. 격자를 꺼 두어도
-        # 이 선만은 남긴다. 판에서 가장 중요한 구분선이다.
-        warn = QColor(255, 120, 120, min(255, max(110, ga * 5)))
-        draw_lines(p, [(0, self.y_of(1), self.width(), self.y_of(1))],
-                   warn, lift, 1.0 + lift, Qt.DashLine)
+        # 숨은 줄 경계 — 여기 넘어가면 위험하다는 표시. 보조가 켜져 있으면
+        # 격자를 꺼 두어도 이 선만은 남긴다. 판에서 가장 중요한 구분선이다.
+        warn_a = min(255, ga * 5)
+        if lift:
+            warn_a = max(warn_a, 110)
+        if warn_a:
+            draw_lines(p, [(0, self.y_of(1), self.width(), self.y_of(1))],
+                       QColor(255, 120, 120, warn_a), lift,
+                       1.0 + lift, Qt.DashLine)
         draw_board_edge(p, self.width(), self.height(), c * 0.18, lift)
 
         # ---- 쌓인 뿌요 ----
@@ -3795,18 +3810,18 @@ class SudokuBoard(QWidget):
         # 배경이 옅어도 반드시 보여야 한다.
         lift = faint_strength(s)
         ga = grid_alpha_of(s)
-        light, heavy_l = [], []
+        thin = QColor(255, 255, 255, max(26, ga + 14))
+        thick = QColor(255, 255, 255, max(120, ga + 100))
         for k in range(SUD_N + 1):
             box = (k % SUD_BOX == 0)
-            (heavy_l if box else light).extend(
-                [(k * c, 0, k * c, self.height()),
-                 (0, k * c, self.width(), k * c)])
-        if ga:
-            draw_lines(p, light, QColor(255, 255, 255, max(26, ga + 14)), lift)
-        # 박스를 가르는 굵은 선은 격자를 꺼도 남긴다. 이게 없으면 3x3 이
-        # 어디서 갈리는지 알 수 없어 스도쿠 판 구실을 못 한다.
-        draw_lines(p, heavy_l, QColor(255, 255, 255, max(120, ga + 100)),
-                   lift, max(2.0, c * 0.08))
+            # 박스를 가르는 굵은 선은 격자를 꺼도 남긴다. 이게 없으면 3x3 이
+            # 어디서 갈리는지 알 수 없어 스도쿠 판 구실을 못 한다.
+            if not box and not ga:
+                continue
+            draw_lines(p, [(k * c, 0, k * c, self.height()),
+                           (0, k * c, self.width(), k * c)],
+                       thick if box else thin, lift,
+                       max(2.0, c * 0.08) if box else 1)
         draw_board_edge(p, self.width(), self.height(), c * 0.16, lift)
 
         # 숫자와 메모
@@ -3817,7 +3832,8 @@ class SudokuBoard(QWidget):
         # 배경을 옅게 두면 뒤쪽 창이 비쳐, 밝은 문서 위에서는 숫자가 묻힌다.
         # 그럴 때만 숫자 뒤에 어두운 그림자를 한 겹 깔아 준다.
         faint = faint_bg(s)
-        shadow = QColor(0, 0, 0, 225)
+        # 보조를 켜면 조금 더 진하게. 끄면 예전 값 그대로 둔다.
+        shadow = QColor(0, 0, 0, 225 if faint_strength(s) else 190)
         for i in range(81):
             r, col = divmod(i, SUD_N)
             rect = QRectF(col * c, r * c, c, c)
@@ -4432,6 +4448,12 @@ class SettingsDialog(QDialog):
         self.bg_slider.valueChanged.connect(self._set_bg_alpha)
         form.addRow(tr("배경 진하기 (0 = 배경 지우기)"), self.bg_slider)
 
+        aid = QCheckBox(tr("배경이 옅을 때 또렷하게"))
+        aid.setChecked(bool(s.get("visibility_aid", True)))
+        aid.setToolTip(tr("끄면 보조선과 받침 없이 예전처럼 그린다."))
+        aid.toggled.connect(lambda on: self._set_flag_restyle("visibility_aid", on))
+        form.addRow("", aid)
+
         grid_on = QCheckBox(tr("격자선 보이기"))
         grid_on.setChecked(bool(s.get("show_grid", True)))
         form.addRow("", grid_on)
@@ -4614,6 +4636,11 @@ class SettingsDialog(QDialog):
 
     def _set_grid_alpha(self, v):
         self.w.cfg.s["grid_alpha"] = int(v)
+        self.w.apply_style()
+        self.w.schedule_save()
+
+    def _set_flag_restyle(self, key, on):
+        self.w.cfg.s[key] = bool(on)
         self.w.apply_style()
         self.w.schedule_save()
 
