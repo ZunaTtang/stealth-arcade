@@ -202,6 +202,11 @@ can be found by sweeping the games rather than by reading the source.
 
 Settings live in `%APPDATA%\StealthPuyo\config.json`.
 
+## License
+
+MIT — see [LICENSE](LICENSE). The MIT grant covers this implementation's own
+source code; it does not grant any rights in the trademarks named below.
+
 ## Trademarks
 
 Puyo Puyo and Tetris are trademarks of SEGA and The Tetris Company respectively.

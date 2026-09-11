@@ -534,3 +534,14 @@ register_game(GameSpec(
 Fusion 으로 고정하고, (2) 팔레트를 자손 위젯 하나하나에 직접 넣는다. 부모에게만
 주고 상속에 맡기면 스크롤 영역 안쪽이나 `QKeySequenceEdit` 내부처럼 Qt 가 자기
 팔레트를 따로 들고 있는 위젯이 흰색으로 남는다.
+
+## 라이선스
+
+MIT — [LICENSE](LICENSE) 참고. MIT 는 이 구현의 소스 코드에 대한 것이고,
+아래 상표에 대한 권리를 주지는 않는다.
+
+## 상표
+
+Puyo Puyo 와 Tetris 는 각각 SEGA 와 The Tetris Company 의 상표다. 이 저장소는
+공개된 규칙을 따로 구현한 것이고, 두 회사와 아무 관련이 없으며 승인을 받지도
+않았다.
