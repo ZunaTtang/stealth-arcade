@@ -1,30 +1,44 @@
 @echo off
-REM Stealth Puyo - exe 빌드 스크립트
-REM 결과물: dist\Notepad.exe  (콘솔 창 없음, 단일 파일, 약 24MB)
+REM Stealth Puyo - build script. Output: dist\Notepad.exe (~24MB, no console)
 REM
-REM 반드시 Notepad.spec 으로 빌드한다.
-REM 예전처럼 stealth_puyo.py 를 직접 넘기면 PyInstaller 가 Notepad.spec 을
-REM 새로 만들어 덮어써 버린다. 그러면 쓰지 않는 Qt 모듈을 걷어내는 설정이
-REM 사라져 결과물이 40MB 로 돌아가고, 스펙 파일의 주석과 목록도 날아간다.
+REM Always build from Notepad.spec. Passing stealth_puyo.py to PyInstaller
+REM makes it overwrite Notepad.spec, losing the Qt module exclusions that
+REM cut the exe from 40MB to 24MB.
+REM Rename the exe by editing name='Notepad' in Notepad.spec.
 REM
-REM 실행 파일 이름을 바꾸려면 Notepad.spec 의 name='Notepad' 를 고치세요.
-
+REM cmd reads .bat files in the system codepage, so UTF-8 Korean text above
+REM chcp would be mangled into broken commands. Everything before chcp is
+REM ASCII only; Korean messages come after it.
+chcp 65001 > nul
 setlocal
+cd /d "%~dp0"
 
-echo [1/2] 의존성 확인
-python -m pip install --user PyQt5 pyinstaller || goto :fail
+echo [1/3] 실행 중인 앱 종료
+REM dist 안의 exe 만 고른다. 윈도우 메모장도 이름이 Notepad.exe 라 경로로 가른다.
+REM 따옴표 안에서는 ^ 가 탈출 문자가 아니다. | 를 ^| 로 적으면 PowerShell 이
+REM 그대로 받아 구문 오류가 나고, 아무 말 없이 지나가 버린다.
+powershell -NoProfile -Command "$t = Join-Path '%~dp0' 'dist\Notepad.exe'; $hit = @(Get-Process Notepad -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $t }); if ($hit.Count) { foreach ($p in $hit) { Write-Host ('  종료: PID ' + $p.Id); try { $p.Kill(); $p.WaitForExit(5000) } catch {} } } else { Write-Host '  실행 중인 앱 없음' }"
+if errorlevel 1 goto fail
 
-echo [2/2] 빌드
-python -m PyInstaller --noconfirm Notepad.spec || goto :fail
+echo [2/3] 의존성 확인
+python -m pip install --user --quiet PyQt5 pyinstaller
+if errorlevel 1 goto fail
+
+echo [3/3] 빌드
+python -m PyInstaller --noconfirm Notepad.spec
+if errorlevel 1 goto fail
 
 echo.
 echo 완료: dist\Notepad.exe
 echo 설정은 %%APPDATA%%\StealthPuyo\config.json 에 저장됩니다.
-goto :eof
+goto end
 
 :fail
 echo.
 echo 빌드 실패. 위 메시지를 확인하세요.
-echo 파일 접근이 거부되었다면, 실행 중인 앱이 dist\Notepad.exe 를 잠그고
-echo 있을 수 있습니다. Ctrl+Alt+Q 로 종료한 뒤 다시 실행하세요.
+echo dist\Notepad.exe 가 잠겨 있다면 앱이 아직 떠 있는 것입니다.
+echo 트레이 아이콘에서 종료하거나 Ctrl+Alt+Q 를 누른 뒤 다시 실행하세요.
 exit /b 1
+
+:end
+endlocal
