@@ -164,6 +164,7 @@ LOCAL_ACTIONS = [
     ("settings",       "설정 열기",         "F1"),
     ("menu",           "메뉴 열기",         "Ctrl+R"),
     ("toggle_bg",      "배경 지우기 토글",  "Ctrl+B"),
+    ("toggle_grid",    "격자선 토글",       "Ctrl+G"),
     ("opacity_up",     "더 진하게",         "Ctrl+]"),
     ("opacity_down",   "더 투명하게",       "Ctrl+["),
     ("cell_up",        "화면 크게",         "Ctrl+Up"),
@@ -371,6 +372,12 @@ TR = {
     "제한 없음": "No limit",
     "%d번": "%d",
     "이어서 풀기": "Resuming",
+    "격자선 보이기": "Show grid",
+    "격자선 진하기": "Grid strength",
+    "격자선 ON": "Grid ON",
+    "격자선 OFF": "Grid OFF",
+    "격자선 토글": "Toggle grid",
+    "격자선	%s": "Grid	%s",
     "지움": "Ers",
     "힌%d": "H%d",
     "되돌": "Und",
@@ -464,7 +471,8 @@ COMMON_DEFAULTS = {
     "cell": 30,                   # 셀 한 변 픽셀 — 창 크기가 여기서 결정된다
     "bg_color": "#101418",
     "bg_alpha": 78,               # 0~255. 0 이면 '배경 지우기'
-    "grid_alpha": 20,             # 격자선 알파
+    "show_grid": True,            # 격자선 켜고 끄기
+    "grid_alpha": 20,             # 격자선 진하기 (켜져 있을 때)
     "opacity": 0.94,              # 창 전체 투명도
     "always_on_top": True,
     "frameless": True,
@@ -774,6 +782,78 @@ def mix(c1, c2, t):
     return QColor(int(c1.red() * (1 - t) + c2.red() * t),
                   int(c1.green() * (1 - t) + c2.green() * t),
                   int(c1.blue() * (1 - t) + c2.blue() * t))
+
+
+# ------------------------------------------------- 배경이 옅을 때의 가시성
+# 배경 알파를 낮추면 뒤 창이 그대로 비친다. 흰 문서 위에 올리면 흰 격자선과
+# 흰 테두리가 통째로 사라져서, 판이 어디서 시작하고 끝나는지조차 안 보인다.
+# 색을 바꿔서는 못 고친다 — 어두운 바탕에서 잘 보이는 색과 밝은 바탕에서 잘
+# 보이는 색이 서로 반대다. 그래서 밝은 선 뒤에 어두운 선을 한 겹 깔아, 어느
+# 바탕에서도 둘 중 하나는 남게 한다.
+FAINT_BG = 140                # 이 아래면 뒤 창이 비친다고 본다
+
+
+def faint_bg(s):
+    return int(s["bg_alpha"]) < FAINT_BG
+
+
+def faint_strength(s):
+    """0.0(안 옅음) ~ 1.0(완전 투명). 옅을수록 보조선을 세게 준다."""
+    a = int(s["bg_alpha"])
+    if a >= FAINT_BG:
+        return 0.0
+    return (FAINT_BG - a) / float(FAINT_BG)
+
+
+def draw_lines(p, lines, color, strength, width=1.0, style=Qt.SolidLine):
+    """격자선 — 옅을 때는 어두운 선을 먼저 깔고 그 위에 밝은 선을 긋는다."""
+    if strength > 0:
+        p.setPen(QPen(QColor(0, 0, 0, int(40 + 110 * strength)), width, style))
+        for x1, y1, x2, y2 in lines:
+            p.drawLine(int(x1 + 1), int(y1 + 1), int(x2 + 1), int(y2 + 1))
+    p.setPen(QPen(color, width, style))
+    for x1, y1, x2, y2 in lines:
+        p.drawLine(int(x1), int(y1), int(x2), int(y2))
+
+
+def draw_board_edge(p, width, height, radius, strength):
+    """판 테두리. 배경이 옅을수록 또렷하게 — 판의 경계는 반드시 보여야 한다."""
+    if strength <= 0:
+        return
+    rect = QRectF(1.5, 1.5, width - 3.0, height - 3.0)
+    p.setBrush(Qt.NoBrush)
+    p.setPen(QPen(QColor(0, 0, 0, int(70 + 130 * strength)),
+                  2.0 + 1.5 * strength))
+    p.drawRoundedRect(rect, radius, radius)
+    p.setPen(QPen(QColor(255, 255, 255, int(70 + 140 * strength)), 1.3))
+    p.drawRoundedRect(rect, radius, radius)
+
+
+def text_plate_css(bg_color, strength):
+    """옆 칸·상단바 글 뒤에 깔 어두운 받침.
+
+    글자에 그림자만 둘러서는 안 된다. 거의 흰 글자를 흰 문서 위에 올리면
+    테두리를 아무리 진하게 줘도 획 안쪽이 바탕과 같은 색이라 읽히지 않는다.
+    뒤에 받침을 깔면 바탕이 무엇이든 글자가 놓일 자리가 생긴다. 배경이
+    옅을수록만 진해지므로, 배경을 살려 둔 사람에게는 아무것도 달라지지 않는다.
+    """
+    if strength <= 0:
+        return ""
+    c = QColor(bg_color)
+    return ("background-color: rgba(%d,%d,%d,%d);"
+            " border-radius: 4px; padding: 2px 4px;"
+            % (c.red(), c.green(), c.blue(), int(90 + 90 * strength)))
+
+
+def grid_alpha_of(s):
+    """지금 써야 할 격자선 진하기. 꺼져 있으면 0."""
+    return int(s["grid_alpha"]) if s.get("show_grid", True) else 0
+
+
+def grid_color(grid_alpha, strength):
+    """옅을수록 격자선 자체도 조금 진하게."""
+    return QColor(255, 255, 255,
+                  min(255, int(grid_alpha + 45 * strength)))
 
 
 def menu_stylesheet(bg_color):
@@ -1463,19 +1543,20 @@ class PuyoBoard(QWidget):
             p.setBrush(bg)
             p.drawRoundedRect(QRectF(0, 0, self.width(), self.height()),
                               c * 0.18, c * 0.18)
-        ga = int(s["grid_alpha"])
+        lift = faint_strength(s)
+        ga = grid_alpha_of(s)
         if ga:
-            line = QColor(255, 255, 255, ga)
-            p.setPen(QPen(line, 1))
-            for x in range(COLS + 1):
-                p.drawLine(int(x * c), int(self.y_of(1)),
-                           int(x * c), self.height())
-            for row in range(1, ROWS + 1):
-                yy = int(self.y_of(row))
-                p.drawLine(0, yy, self.width(), yy)
-            # 숨은 줄 경계 — 여기 넘어가면 위험하다는 표시
-            p.setPen(QPen(QColor(255, 120, 120, min(255, ga * 5)), 1, Qt.DashLine))
-            p.drawLine(0, int(self.y_of(1)), self.width(), int(self.y_of(1)))
+            lines = [(x * c, self.y_of(1), x * c, self.height())
+                     for x in range(COLS + 1)]
+            lines += [(0, self.y_of(row), self.width(), self.y_of(row))
+                      for row in range(1, ROWS + 1)]
+            draw_lines(p, lines, grid_color(ga, lift), lift)
+        # 숨은 줄 경계 — 여기 넘어가면 위험하다는 표시. 격자를 꺼 두어도
+        # 이 선만은 남긴다. 판에서 가장 중요한 구분선이다.
+        warn = QColor(255, 120, 120, min(255, max(110, ga * 5)))
+        draw_lines(p, [(0, self.y_of(1), self.width(), self.y_of(1))],
+                   warn, lift, 1.0 + lift, Qt.DashLine)
+        draw_board_edge(p, self.width(), self.height(), c * 0.18, lift)
 
         # ---- 쌓인 뿌요 ----
         blink = g.state == "pop" and int(g.timer / 90) % 2 == 0
@@ -2305,13 +2386,15 @@ class TetrisBoard(QWidget):
             p.setBrush(bg)
             p.drawRoundedRect(QRectF(0, 0, self.width(), self.height()),
                               c * 0.16, c * 0.16)
-        ga = int(s["grid_alpha"])
+        lift = faint_strength(s)
+        ga = grid_alpha_of(s)
         if ga:
-            p.setPen(QPen(QColor(255, 255, 255, ga), 1))
-            for x in range(TCOLS + 1):
-                p.drawLine(int(x * c), 0, int(x * c), self.height())
-            for row in range(TVIS + 1):
-                p.drawLine(0, int(row * c), self.width(), int(row * c))
+            lines = [(x * c, 0, x * c, self.height())
+                     for x in range(TCOLS + 1)]
+            lines += [(0, row * c, self.width(), row * c)
+                      for row in range(TVIS + 1)]
+            draw_lines(p, lines, grid_color(ga, lift), lift)
+        draw_board_edge(p, self.width(), self.height(), c * 0.16, lift)
 
         blink = g.state == "clear" and int(g.timer / 55) % 2 == 0
         for row in range(THID, TROWS):
@@ -3708,15 +3791,23 @@ class SudokuBoard(QWidget):
             p.drawRect(QRectF(col * c + inset, r * c + inset,
                               c - inset * 2, c - inset * 2))
 
-        # 격자 — 3칸마다 굵게
-        thin = QColor(255, 255, 255, max(26, int(s["grid_alpha"]) + 14))
-        thick = QColor(255, 255, 255, max(120, int(s["grid_alpha"]) + 100))
+        # 격자 — 3칸마다 굵게. 박스를 가르는 굵은 선이 이 판의 구분선이라
+        # 배경이 옅어도 반드시 보여야 한다.
+        lift = faint_strength(s)
+        ga = grid_alpha_of(s)
+        light, heavy_l = [], []
         for k in range(SUD_N + 1):
-            heavy = (k % SUD_BOX == 0)
-            p.setPen(QPen(thick if heavy else thin,
-                          max(2.0, c * 0.08) if heavy else 1))
-            p.drawLine(int(k * c), 0, int(k * c), self.height())
-            p.drawLine(0, int(k * c), self.width(), int(k * c))
+            box = (k % SUD_BOX == 0)
+            (heavy_l if box else light).extend(
+                [(k * c, 0, k * c, self.height()),
+                 (0, k * c, self.width(), k * c)])
+        if ga:
+            draw_lines(p, light, QColor(255, 255, 255, max(26, ga + 14)), lift)
+        # 박스를 가르는 굵은 선은 격자를 꺼도 남긴다. 이게 없으면 3x3 이
+        # 어디서 갈리는지 알 수 없어 스도쿠 판 구실을 못 한다.
+        draw_lines(p, heavy_l, QColor(255, 255, 255, max(120, ga + 100)),
+                   lift, max(2.0, c * 0.08))
+        draw_board_edge(p, self.width(), self.height(), c * 0.16, lift)
 
         # 숫자와 메모
         num = QFont(UI_FONT)
@@ -3725,8 +3816,8 @@ class SudokuBoard(QWidget):
         note_font.setPixelSize(max(6, int(c * 0.26)))
         # 배경을 옅게 두면 뒤쪽 창이 비쳐, 밝은 문서 위에서는 숫자가 묻힌다.
         # 그럴 때만 숫자 뒤에 어두운 그림자를 한 겹 깔아 준다.
-        faint = int(s["bg_alpha"]) < 140
-        shadow = QColor(0, 0, 0, 190)
+        faint = faint_bg(s)
+        shadow = QColor(0, 0, 0, 225)
         for i in range(81):
             r, col = divmod(i, SUD_N)
             rect = QRectF(col * c, r * c, c, c)
@@ -3921,7 +4012,7 @@ class SudokuPad(QWidget):
         small = QFont(UI_FONT)
         small.setPixelSize(max(7, int(c * 0.26)))
         # 판과 같은 이유로, 배경이 옅으면 글자 뒤에 그림자를 깐다.
-        faint = int(self.win.cfg.s["bg_alpha"]) < 140
+        faint = faint_bg(self.win.cfg.s)
         shadow = QColor(0, 0, 0, 190)
 
         def text(rect, font, color, msg):
@@ -4341,11 +4432,18 @@ class SettingsDialog(QDialog):
         self.bg_slider.valueChanged.connect(self._set_bg_alpha)
         form.addRow(tr("배경 진하기 (0 = 배경 지우기)"), self.bg_slider)
 
-        grid = QSlider(Qt.Horizontal)
-        grid.setRange(0, 90)
-        grid.setValue(int(s["grid_alpha"]))
-        grid.valueChanged.connect(self._set_grid_alpha)
-        form.addRow(tr("격자선"), grid)
+        grid_on = QCheckBox(tr("격자선 보이기"))
+        grid_on.setChecked(bool(s.get("show_grid", True)))
+        form.addRow("", grid_on)
+
+        self.grid_slider = QSlider(Qt.Horizontal)
+        self.grid_slider.setRange(0, 90)
+        self.grid_slider.setValue(int(s["grid_alpha"]))
+        self.grid_slider.valueChanged.connect(self._set_grid_alpha)
+        self.grid_slider.setEnabled(grid_on.isChecked())
+        form.addRow(tr("격자선 진하기"), self.grid_slider)
+
+        grid_on.toggled.connect(self._set_show_grid)
 
         self.op_slider = QSlider(Qt.Horizontal)
         self.op_slider.setRange(15, 100)
@@ -4518,6 +4616,15 @@ class SettingsDialog(QDialog):
         self.w.cfg.s["grid_alpha"] = int(v)
         self.w.apply_style()
         self.w.schedule_save()
+
+    def _set_show_grid(self, on):
+        self.w.set_show_grid(bool(on))
+        sl = getattr(self, "grid_slider", None)
+        if sl is not None:
+            sl.setEnabled(bool(on))
+            sl.blockSignals(True)
+            sl.setValue(int(self.w.cfg.s["grid_alpha"]))
+            sl.blockSignals(False)
 
     def _set_flag(self, key, on):
         self.w.cfg.s[key] = bool(on)
@@ -4788,6 +4895,7 @@ class PuyoWindow(QWidget):
             "settings": self.open_settings,
             "menu": lambda: self.show_menu(QCursor.pos()),
             "toggle_bg": self.toggle_bg,
+            "toggle_grid": self.toggle_grid,
             "opacity_up": lambda: self.bump_opacity(+0.05),
             "opacity_down": lambda: self.bump_opacity(-0.05),
             "cell_up": lambda: self.bump_cell(+2),
@@ -4812,7 +4920,8 @@ class PuyoWindow(QWidget):
 
     # 일시정지 중에도 받아야 하는 동작 — 나머지 조작키는 막는다
     ALWAYS_ON = {"pause", "new_game", "restart", "hide", "settings", "menu",
-                 "toggle_bg", "opacity_up", "opacity_down", "cell_up",
+                 "toggle_bg", "toggle_grid", "opacity_up", "opacity_down",
+                 "cell_up",
                  "cell_down", "toggle_top", "toggle_panel", "toggle_topbar",
                  "g_hide", "g_restart", "g_bg", "g_pause", "g_quit"}
 
@@ -4952,11 +5061,18 @@ class PuyoWindow(QWidget):
         ink = QColor("#e8ecf4")
         dim = mix(QColor(s["bg_color"]), ink, 0.62)
         self.setStyleSheet("#puyoRoot, #puyoRoot * { font-family: '%s'; }" % UI_FONT)
+        # 배경이 옅으면 뒤 창이 비쳐 글이 묻힌다. 판의 숫자와 같은 이유로
+        # 옆 칸·상단바 글에는 어두운 받침을 깔아 준다.
+        lift = faint_strength(s)
+        plate = text_plate_css(s["bg_color"], lift)
+        # 받침을 깔면 배경색에 묻히지 않게 글자도 또렷한 쪽으로 올린다
+        if lift > 0:
+            dim = mix(QColor(s["bg_color"]), ink, 0.82)
         self.info_label.setStyleSheet(
-            "color: %s; font-size: 10px;" % dim.name())
+            "color: %s; font-size: 10px; %s" % (dim.name(), plate))
         stat_px = max(9, min(13, int(int(s["cell"]) * 0.36)))
-        self.stat_label.setStyleSheet("color: %s; font-size: %dpx;"
-                                      % (ink.name(), stat_px))
+        self.stat_label.setStyleSheet("color: %s; font-size: %dpx; %s"
+                                      % (ink.name(), stat_px, plate))
         hover = mix(QColor(s["bg_color"]), ink, 0.22)
         for kind, btn in self.buttons.items():
             btn.setStyleSheet(
@@ -5064,6 +5180,24 @@ class PuyoWindow(QWidget):
         self.resync_size()
         self.flash(tr("셀 %dpx") % self.cfg.s["cell"])
         self.schedule_save()
+
+    def set_show_grid(self, on):
+        """격자선 켜고 끄기.
+
+        진하기를 0 까지 내려 둔 채로 껐다 켜면 켜도 안 보인다. 켤 때는
+        최소한 눈에 걸리는 값까지 올려 준다.
+        """
+        s = self.cfg.s
+        s["show_grid"] = bool(on)
+        if on and int(s["grid_alpha"]) < 8:
+            s["grid_alpha"] = COMMON_DEFAULTS["grid_alpha"]
+        self.apply_style()
+        self.schedule_save()
+
+    def toggle_grid(self):
+        self.set_show_grid(not self.cfg.s.get("show_grid", True))
+        self.flash(tr("격자선 ON") if self.cfg.s["show_grid"]
+                   else tr("격자선 OFF"))
 
     def toggle_bg(self):
         """배경 지우기 — 0 과 직전 값을 왕복한다."""
@@ -5331,6 +5465,11 @@ class PuyoWindow(QWidget):
                                 self.toggle_bg)
         act_bg.setCheckable(True)
         act_bg.setChecked(int(s["bg_alpha"]) == 0)
+
+        act_grid = menu.addAction(tr("격자선	%s") % self.key_hint("toggle_grid"),
+                                  self.toggle_grid)
+        act_grid.setCheckable(True)
+        act_grid.setChecked(bool(s.get("show_grid", True)))
 
         act_top = menu.addAction(tr("항상 위\t%s") % self.key_hint("toggle_top"),
                                  self.toggle_on_top)
