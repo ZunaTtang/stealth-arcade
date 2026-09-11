@@ -371,13 +371,17 @@ TR = {
     "제한 없음": "No limit",
     "%d번": "%d",
     "이어서 풀기": "Resuming",
+    "지움": "Ers",
+    "힌%d": "H%d",
+    "되돌": "Und",
+    "✎ 메모 · %s": "✎ Notes · %s",
     "힌트 %d번째": "Hint #%d",
     "%s (%d~%d칸)": "%s (%d–%d givens)",
     "%s · 실수 %s": "%s · %s mistakes",
-    "<b>%s</b><br>%s<br><br>남은 <b>%d</b><br>실수 <b>%s</b><br>힌트 <b>%d</b>"
-    "<br><br>최고 <b>%s</b>":
-        "<b>%s</b><br>%s<br><br>Left <b>%d</b><br>Mistakes <b>%s</b>"
-        "<br>Hints <b>%d</b><br><br>Best <b>%s</b>",
+    "<b>%s</b><br>%s<br>남은 <b>%d</b><br>실수 <b>%s</b><br>힌트 <b>%d</b>"
+    "<br>최고 <b>%s</b>":
+        "<b>%s</b><br>%s<br>Left <b>%d</b><br>Mistakes <b>%s</b>"
+        "<br>Hints <b>%d</b><br>Best <b>%s</b>",
     "%s<br><br>난이도<br><b>%s</b><br>필요 기법<br><b>%s</b>"
     "<br><br>남은 칸 <b>%d</b><br>실수 <b>%s</b><br>힌트 <b>%d</b>"
     "<br><br>최고 기록<br><b>%s</b>":
@@ -2577,6 +2581,10 @@ SUD_CELL_COLOR = "#7cc4ff"        # 내가 넣은 숫자
 SUD_GIVEN_COLOR = "#d3dcea"       # 처음부터 주어진 숫자
 SUD_WRONG_COLOR = "#ff7b7b"       # 틀린 숫자
 SUD_NOTE_COLOR = "#9aa8c0"        # 메모(연필)
+# 메모 모드일 때 쓰는 강조색. 평소의 파랑과 확실히 갈라야 지금 누르면 확정이
+# 아니라 연필이 써진다는 것이 한눈에 보인다.
+SUD_NOTE_ACCENT = "#ffc247"
+SUD_NOTE_ACCENT_DIM = "#8a6b1f"
 
 
 def sud_peers(i):
@@ -3666,15 +3674,18 @@ class SudokuBoard(QWidget):
         peers, same = g.highlight()
         cur = g.cursor
         cur_v = g.grid[cur]
+        # 메모 모드에서는 판 전체의 강조색을 바꾼다
+        noting = g.note_mode and not g.over
+        cur_rgb = (255, 194, 71) if noting else (90, 130, 255)
         # 칸 바탕 — 고른 칸 / 같은 줄·칸·박스 / 같은 숫자
         for i in range(81):
             r, col = divmod(i, SUD_N)
             rect = QRectF(col * c, r * c, c, c)
             fill = None
             if i == cur:
-                fill = QColor(90, 130, 255, 110)
+                fill = QColor(*cur_rgb, 120) if noting else QColor(90, 130, 255, 110)
             elif cur_v and i in same:
-                fill = QColor(90, 130, 255, 70)
+                fill = QColor(*cur_rgb, 64) if noting else QColor(90, 130, 255, 70)
             elif i in peers:
                 fill = QColor(255, 255, 255, 18)
             if i in g.wrong:
@@ -3683,6 +3694,19 @@ class SudokuBoard(QWidget):
                 p.setPen(Qt.NoPen)
                 p.setBrush(fill)
                 p.drawRect(rect)
+
+        # 메모 모드면 고른 칸을 점선으로 둘러 준다. 색만으로는 색약인 눈에
+        # 안 걸릴 수 있으니 모양도 함께 바꾼다.
+        if noting:
+            r, col = divmod(cur, SUD_N)
+            pen = QPen(QColor(SUD_NOTE_ACCENT), max(1.6, c * 0.07),
+                       Qt.DashLine)
+            pen.setDashPattern([2.2, 1.8])
+            p.setPen(pen)
+            p.setBrush(Qt.NoBrush)
+            inset = max(1.4, c * 0.06)
+            p.drawRect(QRectF(col * c + inset, r * c + inset,
+                              c - inset * 2, c - inset * 2))
 
         # 격자 — 3칸마다 굵게
         thin = QColor(255, 255, 255, max(26, int(s["grid_alpha"]) + 14))
@@ -3807,11 +3831,24 @@ class SudokuPad(QWidget):
     메모·지우개·힌트·되돌리기도 여기서 누를 수 있다.
     """
 
-    # 2x2 로 놓는다. 세로로 네 줄을 쓰면 옆 칸에 남는 높이가 모자라 점수 글이
+    # 두 줄로 놓는다. 세로로 네 줄을 쓰면 옆 칸에 남는 높이가 모자라 점수 글이
     # 잘린다.
-    BUTTONS = [("메모", "note"), ("지우기", "erase"),
-               ("힌트", "hint"), ("되돌리기", "undo")]
+    #   윗줄  메모 스위치 — 켜고 끄는 것이라 눌러서 끝나는 나머지와 성격이
+    #         다르다. 폭을 다 써서 스위치 모양을 제대로 그린다.
+    #   아랫줄 지우기 · 힌트 · 되돌리기
+    #            긴 이름    동작     짧은 이름  줄  칸  차지하는 칸 수
+    # 한 줄에 셋을 놓으면 기본 셀 크기에서 "되돌리기" 가 안 들어가 줄임말을
+    # 써야 한다. 두 줄로 나눠 이름을 그대로 쓴다.
+    BUTTONS = [("지우기", "erase", "지움", 0, 0, 1),
+               ("힌트", "hint", "힌", 0, 1, 1),
+               ("되돌리기", "undo", "되돌", 1, 0, 2)]
     BTN_COLS = 2
+    BTN_ROWS = 3            # 메모 스위치 한 줄 + 버튼 두 줄
+    # 줄이 하나 늘어난 만큼 촘촘하게 — 안 그러면 옆 칸 점수 글에서 "최고 기록"
+    # 줄이 밀려 잘린다. (셀 크기의 배수)
+    BTN_GAP = 0.24          # 숫자칸과 첫 줄 사이
+    BTN_PITCH = 0.72        # 줄 간격
+    BTN_H = 0.62            # 버튼 높이
 
     def __init__(self, win):
         super().__init__(win)
@@ -3823,9 +3860,22 @@ class SudokuPad(QWidget):
 
     def resync(self):
         c = self.cell()
-        rows = (len(self.BUTTONS) + self.BTN_COLS - 1) // self.BTN_COLS
-        self.setFixedSize(c * 3, int(c * 3 + c * 0.9 * rows + c * 0.4))
+        self.setFixedSize(c * 3, int(c * 3 + c * self.BTN_GAP
+                                     + c * self.BTN_PITCH * self.BTN_ROWS))
         self.update()
+
+    def _rows_top(self):
+        return self.cell() * (3 + self.BTN_GAP)
+
+    def _row_rect(self, row, col=0, span=None):
+        c = self.cell()
+        span = self.BTN_COLS if span is None else span
+        bw = self.width() / self.BTN_COLS
+        return QRectF(col * bw + 1, self._rows_top() + row * c * self.BTN_PITCH,
+                      bw * span - 2, c * self.BTN_H)
+
+    def _switch_rect(self):
+        return self._row_rect(0, 0, self.BTN_COLS)
 
     def _hit(self, pos):
         c = self.cell()
@@ -3835,11 +3885,16 @@ class SudokuPad(QWidget):
             if 0 <= col < 3 and 0 <= row < 3:
                 return ("num", row * 3 + col + 1)
             return None
-        row = int((y - c * 3 - c * 0.4) // (c * 0.9))
-        col = int(x // (self.width() / self.BTN_COLS))
-        idx = row * self.BTN_COLS + min(col, self.BTN_COLS - 1)
-        if row >= 0 and 0 <= idx < len(self.BUTTONS):
-            return ("act", self.BUTTONS[idx][1])
+        top = self._rows_top()
+        if y < top:
+            return None          # 숫자칸과 스위치 사이 빈 띠 — 아무것도 아니다
+        row = int((y - top) // (c * self.BTN_PITCH))
+        if row == 0:
+            return ("act", "note")           # 윗줄은 전부 메모 스위치
+        col = min(self.BTN_COLS - 1, int(x // (self.width() / self.BTN_COLS)))
+        for _l, act, _s, br, bc, span in self.BUTTONS:
+            if br == row - 1 and bc <= col < bc + span:
+                return ("act", act)
         return None
 
     def mousePressEvent(self, event):
@@ -3877,38 +3932,131 @@ class SudokuPad(QWidget):
             p.setPen(color)
             p.drawText(rect, Qt.AlignCenter, msg)
 
+        noting = g.note_mode and not g.over
+        accent = QColor(SUD_NOTE_ACCENT)
+        # 메모일 때는 숫자를 칸 가운데가 아니라 "그 숫자가 메모로 적힐 자리"에
+        # 작게 그린다. 누르면 무엇이 어디에 써지는지 눌러 보기 전에 보인다.
+        note_key = QFont(UI_FONT)
+        note_key.setPixelSize(max(8, int(c * 0.30)))
+        note_key.setBold(True)
+
         for n in range(1, 10):
             row, col = divmod(n - 1, 3)
             rect = QRectF(col * c + 1, row * c + 1, c - 2, c - 2)
             left = g.remaining(n)
             p.setPen(Qt.NoPen)
-            p.setBrush(QColor(255, 255, 255, 16 if left else 6))
+            if noting:
+                p.setBrush(QColor(255, 194, 71, 34 if left else 12))
+            else:
+                p.setBrush(QColor(255, 255, 255, 16 if left else 6))
             p.drawRoundedRect(rect, c * 0.16, c * 0.16)
-            text(rect, f, QColor("#e8ecf4") if left else QColor("#6f7b93"),
-                 str(n))
-            if left:
-                text(QRectF(rect.x(), rect.y() + rect.height() * 0.62,
-                            rect.width(), rect.height() * 0.36),
-                     small, QColor("#9aa5ba"), str(left))
+            if noting:
+                p.setPen(QPen(QColor(255, 194, 71, 110 if left else 45),
+                              max(1.0, c * 0.035)))
+                p.setBrush(Qt.NoBrush)
+                p.drawRoundedRect(rect, c * 0.16, c * 0.16)
+                nr, nc = divmod(n - 1, 3)
+                grid_h = rect.height() * 0.74
+                slot = QRectF(rect.x() + nc * rect.width() / 3.0,
+                              rect.y() + nr * grid_h / 3.0,
+                              rect.width() / 3.0, grid_h / 3.0)
+                text(slot, note_key,
+                     accent if left else QColor(SUD_NOTE_ACCENT_DIM), str(n))
+                if left:
+                    text(QRectF(rect.x(), rect.y() + grid_h,
+                                rect.width(), rect.height() - grid_h),
+                         small, QColor("#9aa5ba"), str(left))
+            else:
+                text(rect, f, QColor("#e8ecf4") if left else QColor("#6f7b93"),
+                     str(n))
+                if left:
+                    text(QRectF(rect.x(), rect.y() + rect.height() * 0.62,
+                                rect.width(), rect.height() * 0.36),
+                         small, QColor("#9aa5ba"), str(left))
 
-        top = c * 3 + c * 0.4
-        p.setFont(small)
+        self._paint_switch(p, self._switch_rect(), noting, text, small)
+
+        # 셀을 작게 줄이면 "되돌리기" 같은 긴 말이 칸에 안 들어간다.
+        # 들어가는 크기를 찾고, 그래도 안 되면 줄임말로 바꾼다.
         bw = self.width() / self.BTN_COLS
-        for idx, (label, act) in enumerate(self.BUTTONS):
-            row, col = divmod(idx, self.BTN_COLS)
-            rect = QRectF(col * bw + 1, top + row * c * 0.9, bw - 2, c * 0.78)
-            on = (act == "note" and g.note_mode)
+        full = [tr("힌트 %d") % g.hints if a == "hint" else tr(l)
+                for l, a, _s, _r, _c, _sp in self.BUTTONS]
+        short = [tr("힌%d") % g.hints if a == "hint" else tr(sh)
+                 for _l, a, sh, _r, _c, _sp in self.BUTTONS]
+        # 폭은 한 칸짜리 버튼이 기준이다 — 거기에 들어가면 다 들어간다
+        labels, tiny = self._fit_labels(full, short, bw - 6, c * 0.26)
+        for idx, (_label, _act, _sh, br, bc, span) in enumerate(self.BUTTONS):
+            rect = self._row_rect(br + 1, bc, span)
             p.setPen(Qt.NoPen)
-            p.setBrush(QColor(74, 125, 255, 150) if on
-                       else QColor(255, 255, 255, 16))
+            p.setBrush(QColor(255, 255, 255, 16))
             p.drawRoundedRect(rect, c * 0.14, c * 0.14)
-            msg = tr(label)
-            if act == "note":
-                msg = tr("메모 ") + (tr("켜짐") if g.note_mode else tr("꺼짐"))
-            elif act == "hint":
-                msg = tr("힌트 %d") % g.hints
-            text(rect, small, QColor("#e8ecf4"), msg)
+            p.save()
+            p.setClipRect(rect)
+            text(rect, tiny, QColor("#e8ecf4"), labels[idx])
+            p.restore()
         p.end()
+
+    def _fit_labels(self, full, short, width, ceiling):
+        """칸에 들어가는 이름과 글자 크기를 고른다.
+
+        긴 이름을 되도록 크게 쓰고, 그래도 안 들어가면 짧은 이름으로 바꾼다.
+        글자를 무작정 줄이면 읽을 수 없는 크기가 되고, 그냥 잘라 내면 "되돌리기"
+        가 "되돌리" 처럼 잘려 나간다.
+        """
+        top = max(7, int(ceiling))
+        for labels, floor in ((full, 7), (short, 5)):
+            for size in range(top, floor - 1, -1):
+                f = QFont(UI_FONT)
+                f.setPixelSize(size)
+                if self._widest(f, labels) <= width:
+                    return labels, f
+        f = QFont(UI_FONT)
+        f.setPixelSize(5)
+        return short, f
+
+    @staticmethod
+    def _widest(font, labels):
+        fm = QFontMetrics(font)
+        try:
+            return max(fm.horizontalAdvance(t) for t in labels)
+        except AttributeError:
+            return max(fm.width(t) for t in labels)
+
+    def _paint_switch(self, p, rect, on, text, font):
+        """메모 켜고 끄기 — 눌러서 끝나는 버튼이 아니라 지금 어느 쪽인지
+        보여 주는 스위치라, 손잡이가 움직이는 모양으로 그린다."""
+        c = self.cell()
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(255, 194, 71, 46) if on
+                   else QColor(255, 255, 255, 14))
+        p.drawRoundedRect(rect, c * 0.14, c * 0.14)
+        if on:
+            p.setPen(QPen(QColor(255, 194, 71, 150), max(1.0, c * 0.04)))
+            p.setBrush(Qt.NoBrush)
+            p.drawRoundedRect(rect, c * 0.14, c * 0.14)
+
+        # 오른쪽에 손잡이가 든 홈, 왼쪽에 이름
+        pad = rect.height() * 0.20
+        track_h = rect.height() - pad * 2
+        track_w = track_h * 1.85
+        track = QRectF(rect.right() - pad - track_w, rect.top() + pad,
+                       track_w, track_h)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(SUD_NOTE_ACCENT) if on else QColor(255, 255, 255, 40))
+        p.drawRoundedRect(track, track_h / 2.0, track_h / 2.0)
+        knob = track_h - max(2.0, track_h * 0.22)
+        kx = (track.right() - knob - (track_h - knob) / 2.0 if on
+              else track.left() + (track_h - knob) / 2.0)
+        p.setBrush(QColor("#1b2028") if on else QColor("#c9d1e0"))
+        p.drawEllipse(QRectF(kx, track.center().y() - knob / 2.0, knob, knob))
+
+        label = QRectF(rect.left() + pad, rect.top(),
+                       track.left() - rect.left() - pad * 2, rect.height())
+        p.save()
+        p.setClipRect(label)
+        text(label, font,
+             QColor(SUD_NOTE_ACCENT) if on else QColor("#c9d1e0"), tr("메모"))
+        p.restore()
 
 
 def sudoku_settings_tab(dlg):
@@ -3956,6 +4104,8 @@ def sudoku_stats(win, g, compact):
     left = 81 - g.filled
     info = tr("%s · 실수 %s") % (g.time_text(g.clear_ms if g.solved else None),
                                 g.mistake_text())
+    if g.note_mode and not g.over:
+        info = tr("✎ 메모 · %s") % info
     if g.msg:
         info = g.msg              # 판을 가리는 대신 상단바에 띄운다
     # 시간 기록은 음수로 담아 둔다 (창은 큰 값으로만 갱신하므로, 음수로 넣어야
@@ -3966,10 +4116,10 @@ def sudoku_stats(win, g, compact):
         # 스도쿠 판은 정사각이라 옆 칸이 짧다. 간략형에도 꼭 필요한 것은 담는다.
         return (tr("<b>%s</b>"
                 "<br>%s"
-                "<br><br>남은 <b>%d</b>"
+                "<br>남은 <b>%d</b>"
                 "<br>실수 <b>%s</b>"
                 "<br>힌트 <b>%d</b>"
-                "<br><br>최고 <b>%s</b>")
+                "<br>최고 <b>%s</b>")
                 % (g.time_text(g.clear_ms if g.solved else None),
                    tr(SUD_LEVEL_LABEL.get(g.level, g.level)),
                    left, g.mistake_text(), g.hints, best_txt), info)
