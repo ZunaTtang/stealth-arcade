@@ -18,12 +18,14 @@ Stealth TXT Reader 와 같은 은폐 구조를 그대로 이어받았다.
 
 import ctypes
 import ctypes.wintypes
+import itertools
 import json
 import math
 import os
 import random
 import sys
 import tempfile
+import time
 
 from PyQt5.QtCore import (
     QAbstractNativeEventFilter, QDataStream, QEvent, QPoint, QPointF, QRect,
@@ -137,6 +139,24 @@ LOCAL_ACTIONS = [
     ("hard",           "즉시 낙하",         "Space"),
     ("hold",           "홀드",              "C"),
     ("rot_180",        "180도 회전",        "A"),
+    ("cur_left",       "커서 왼쪽",         "Left"),
+    ("cur_right",      "커서 오른쪽",       "Right"),
+    ("cur_up",         "커서 위",           "Up"),
+    ("cur_down",       "커서 아래",         "Down"),
+    ("num_1",          "숫자 1 넣기",       "1"),
+    ("num_2",          "숫자 2 넣기",       "2"),
+    ("num_3",          "숫자 3 넣기",       "3"),
+    ("num_4",          "숫자 4 넣기",       "4"),
+    ("num_5",          "숫자 5 넣기",       "5"),
+    ("num_6",          "숫자 6 넣기",       "6"),
+    ("num_7",          "숫자 7 넣기",       "7"),
+    ("num_8",          "숫자 8 넣기",       "8"),
+    ("num_9",          "숫자 9 넣기",       "9"),
+    ("note",           "메모 모드",         "N"),
+    ("erase",          "지우기",            "Delete"),
+    ("erase2",         "지우기 (보조)",     "Backspace"),
+    ("undo",           "되돌리기",          "Ctrl+Z"),
+    ("hint",           "힌트",              "H"),
     ("pause",          "일시정지",          "P"),
     ("new_game",       "새 게임",           "F2"),
     ("restart",        "빠른 재시작",       "R"),
@@ -220,10 +240,14 @@ class GameSpec:
         settings_tab(dlg) -> 설정 창의 '게임' 탭 위젯
         actions       이 게임이 실제로 쓰는 조작 동작 id 집합
         records(game) -> {기록 이름: 값}. 큰 값으로만 갱신한다
+        wants_mouse   필드를 마우스로 눌러야 하는 게임인가. 켜면 필드와 옆
+                      위젯이 클릭을 받는다(그만큼 그 자리에서는 창을 끌 수
+                      없다 — 상단바·점수 칸·창 가장자리로는 그대로 끌 수 있다)
     """
 
     def __init__(self, key, label, defaults, engine, board, stats,
-                 settings_tab, actions, records, side=None):
+                 settings_tab, actions, records, side=None,
+                 wants_mouse=False):
         self.key = key
         self.label = label
         self.defaults = dict(defaults)
@@ -234,6 +258,7 @@ class GameSpec:
         self.settings_tab = settings_tab
         self.actions = frozenset(actions)
         self.records = records
+        self.wants_mouse = bool(wants_mouse)
 
 
 GAMES = {}                        # key -> GameSpec (등록 순서 유지)
@@ -2208,6 +2233,976 @@ TETRIS = register_game(GameSpec(
 ))
 
 
+# =============================================================== 스도쿠 규칙
+# sudoku.com 을 기준으로 만들었다.
+#   · 난이도 여섯 단계 (쉬움 / 보통 / 어려움 / 전문가 / 마스터 / 익스트림)
+#   · 실수 3번이면 게임 오버
+#   · 메모(연필) 모드, 힌트, 되돌리기, 타이머
+#   · 숫자를 넣으면 같은 줄·칸·박스의 메모가 자동으로 지워진다
+#   · 고른 칸의 줄·칸·박스와 같은 숫자를 함께 밝게 보여 준다
+SUD_N = 9                     # 9x9
+SUD_BOX = 3
+SUD_MISTAKES = 3              # sudoku.com 과 같이 세 번 틀리면 끝
+SUD_ALL = frozenset(range(1, 10))
+
+# 난이도 여섯 단계.
+#   givens  처음에 주어지는 숫자 개수 범위 — 난이도를 가르는 주된 축이다
+#   need    이 난이도에서 최소한 필요한 풀이 기법 단계
+#   cap     허용하는 가장 어려운 단계 (None 이면 제한 없음)
+#
+# 기법 단계는 0 단일값 / 1 후보 가두기 / 2 쌍·삼중 / 3 X-Wing / 4 그 이상이다.
+# 실제로 만들어 보면 "부분집합이 가장 어려운 기법"인 판(2·3단계)은 거의 나오지
+# 않는다 — 부분집합이 필요할 정도면 대개 사슬 기법까지 필요해진다. 그래서
+# 기법 조건은 확실히 갈리는 곳(쉬움·보통은 단일값만으로, 익스트림은 X-Wing
+# 으로도 안 풀림)에만 걸고, 나머지는 주어진 숫자 개수로 가른다.
+SUD_LEVELS = [
+    ("easy",    "쉬움",     (40, 45), 0, 0),
+    ("medium",  "보통",     (34, 38), 0, 0),
+    ("hard",    "어려움",   (30, 33), 0, None),
+    ("expert",  "전문가",   (27, 29), 0, None),
+    ("master",  "마스터",   (25, 26), 1, None),
+    ("extreme", "익스트림", (22, 24), 4, None),
+]
+SUD_LEVEL_KEYS = [k for k, _l, _g, _n, _c in SUD_LEVELS]
+SUD_LEVEL_LABEL = {k: l for k, l, _g, _n, _c in SUD_LEVELS}
+SUD_LEVEL_INFO = {k: (g, n, c) for k, _l, g, n, c in SUD_LEVELS}
+SUD_TECH_NAME = {0: "단일값", 1: "후보 가두기", 2: "쌍·삼중",
+                 3: "X-Wing", 4: "그 이상"}
+# 난이도마다 기본 점수 (다 풀었을 때). 시간·실수·힌트로 깎인다.
+SUD_BASE_SCORE = {"easy": 1000, "medium": 2000, "hard": 3500,
+                  "expert": 5000, "master": 7000, "extreme": 10000}
+
+SUD_CELL_COLOR = "#e8ecf4"        # 내가 넣은 숫자
+SUD_GIVEN_COLOR = "#9fb0cc"       # 처음부터 주어진 숫자
+SUD_WRONG_COLOR = "#ff6b6b"       # 틀린 숫자
+SUD_NOTE_COLOR = "#7f8ba3"
+
+
+def sud_peers(i):
+    """그 칸과 같은 줄·칸·박스에 있는 칸 번호들 (자기 자신은 뺀다)."""
+    r, c = divmod(i, SUD_N)
+    out = set()
+    for k in range(SUD_N):
+        out.add(r * SUD_N + k)
+        out.add(k * SUD_N + c)
+    br, bc = (r // SUD_BOX) * SUD_BOX, (c // SUD_BOX) * SUD_BOX
+    for dr in range(SUD_BOX):
+        for dc in range(SUD_BOX):
+            out.add((br + dr) * SUD_N + bc + dc)
+    out.discard(i)
+    return frozenset(out)
+
+
+SUD_PEERS = [sud_peers(i) for i in range(81)]
+SUD_ROWS = [[r * SUD_N + c for c in range(SUD_N)] for r in range(SUD_N)]
+SUD_COLS = [[r * SUD_N + c for r in range(SUD_N)] for c in range(SUD_N)]
+SUD_BOXES = [[(br * SUD_BOX + dr) * SUD_N + bc * SUD_BOX + dc
+              for dr in range(SUD_BOX) for dc in range(SUD_BOX)]
+             for br in range(SUD_BOX) for bc in range(SUD_BOX)]
+SUD_UNITS = SUD_ROWS + SUD_COLS + SUD_BOXES
+SUD_UNITS_OF = [[u for u in SUD_UNITS if i in u] for i in range(81)]
+
+
+# --------------------------------------------------------------- 풀이기
+def sud_solve_count(grid, limit=2):
+    """해가 몇 개인지 센다 (limit 개를 찾으면 멈춘다). 유일해 확인용."""
+    cand = [0] * 81                       # 비트마스크 1<<1 .. 1<<9
+    full = 0
+    for v in range(1, 10):
+        full |= 1 << v
+    for i in range(81):
+        if grid[i]:
+            continue
+        used = 0
+        for p in SUD_PEERS[i]:
+            if grid[p]:
+                used |= 1 << grid[p]
+        cand[i] = full & ~used
+        if cand[i] == 0:
+            return 0
+
+    found = 0
+    work = list(grid)
+
+    def rec():
+        nonlocal found
+        best, best_n = -1, 10
+        for i in range(81):
+            if work[i]:
+                continue
+            used = 0
+            for p in SUD_PEERS[i]:
+                if work[p]:
+                    used |= 1 << work[p]
+            free = full & ~used
+            n = bin(free).count("1")
+            if n == 0:
+                return
+            if n < best_n:
+                best, best_n, best_free = i, n, free
+                if n == 1:
+                    break
+        if best < 0:
+            found += 1
+            return
+        for v in range(1, 10):
+            if best_free & (1 << v):
+                work[best] = v
+                rec()
+                work[best] = 0
+                if found >= limit:
+                    return
+
+    rec()
+    return found
+
+
+def sud_solution(grid):
+    """해 하나를 돌려준다 (없으면 None)."""
+    work = list(grid)
+
+    def rec():
+        best, best_free, best_n = -1, 0, 10
+        for i in range(81):
+            if work[i]:
+                continue
+            used = set()
+            for p in SUD_PEERS[i]:
+                if work[p]:
+                    used.add(work[p])
+            free = SUD_ALL - used
+            if not free:
+                return False
+            if len(free) < best_n:
+                best, best_free, best_n = i, free, len(free)
+                if best_n == 1:
+                    break
+        if best < 0:
+            return True
+        for v in sorted(best_free):
+            work[best] = v
+            if rec():
+                return True
+            work[best] = 0
+        return False
+
+    return list(work) if rec() else None
+
+
+def sud_full_grid():
+    """완성된 판을 무작위로 하나 만든다."""
+    work = [0] * 81
+
+    def rec(i):
+        if i == 81:
+            return True
+        if work[i]:
+            return rec(i + 1)
+        used = set()
+        for p in SUD_PEERS[i]:
+            if work[p]:
+                used.add(work[p])
+        choices = list(SUD_ALL - used)
+        random.shuffle(choices)
+        for v in choices:
+            work[i] = v
+            if rec(i + 1):
+                return True
+            work[i] = 0
+        return False
+
+    rec(0)
+    return work
+
+
+# ------------------------------------------------------- 사람이 푸는 방식
+def sud_candidates(grid):
+    cand = []
+    for i in range(81):
+        if grid[i]:
+            cand.append(set())
+            continue
+        used = {grid[p] for p in SUD_PEERS[i] if grid[p]}
+        cand.append(set(SUD_ALL) - used)
+    return cand
+
+
+def sud_grade(grid):
+    """사람이 쓰는 기법만으로 풀어 보고, 가장 어려웠던 단계를 돌려준다.
+
+    0 단일값 / 1 후보 가두기 / 2 쌍·삼중 / 3 X-Wing.
+    끝까지 못 풀면 4 (그 이상의 기법이나 추측이 필요하다는 뜻).
+
+    후보 목록은 한 번만 만들고 계속 들고 간다. 매번 새로 계산하면 가두기·쌍
+    으로 지운 후보가 그대로 되살아나, 그 기법들이 아무 일도 하지 않은 것과
+    같아진다.
+    """
+    work = list(grid)
+    cand = sud_candidates(work)
+    hardest = 0
+
+    def place(i, v):
+        work[i] = v
+        cand[i] = set()
+        for p in SUD_PEERS[i]:
+            cand[p].discard(v)
+
+    def singles():
+        """확정할 수 있는 칸을 모두 채운다. 하나라도 채웠으면 True."""
+        did = False
+        again = True
+        while again:
+            again = False
+            for i in range(81):
+                if not work[i] and len(cand[i]) == 1:
+                    place(i, next(iter(cand[i])))
+                    did = again = True
+            for unit in SUD_UNITS:
+                for v in SUD_ALL:
+                    spots = [i for i in unit if not work[i] and v in cand[i]]
+                    if len(spots) == 1:
+                        place(spots[0], v)
+                        did = again = True
+        return did
+
+    def broken():
+        return any(not work[i] and not cand[i] for i in range(81))
+
+    singles()
+    while True:
+        if all(work):
+            return hardest
+        if broken():
+            return 4
+
+        # 1) 후보 가두기 — 박스 안에서 한 줄에만 남으면 그 줄 바깥에서 지운다.
+        #    반대로 한 줄이 한 박스 안에만 남으면 그 박스의 나머지에서 지운다.
+        changed = False
+        for box in SUD_BOXES:
+            for v in SUD_ALL:
+                spots = [i for i in box if not work[i] and v in cand[i]]
+                if not spots or len(spots) > 3:
+                    continue
+                rows = {i // SUD_N for i in spots}
+                cols = {i % SUD_N for i in spots}
+                line = None
+                if len(rows) == 1:
+                    line = SUD_ROWS[next(iter(rows))]
+                elif len(cols) == 1:
+                    line = SUD_COLS[next(iter(cols))]
+                if line is None:
+                    continue
+                for i in line:
+                    if i not in box and not work[i] and v in cand[i]:
+                        cand[i].discard(v)
+                        changed = True
+        for line in SUD_ROWS + SUD_COLS:
+            for v in SUD_ALL:
+                spots = [i for i in line if not work[i] and v in cand[i]]
+                if not spots or len(spots) > 3:
+                    continue
+                boxes = {(i // SUD_N // SUD_BOX) * SUD_BOX
+                         + (i % SUD_N) // SUD_BOX for i in spots}
+                if len(boxes) != 1:
+                    continue
+                for i in SUD_BOXES[next(iter(boxes))]:
+                    if i not in line and not work[i] and v in cand[i]:
+                        cand[i].discard(v)
+                        changed = True
+        if changed:
+            hardest = max(hardest, 1)
+            singles()
+            continue
+
+        # 2) 드러난 쌍·삼중과 숨은 쌍·삼중
+        changed = False
+        for unit in SUD_UNITS:
+            empties = [i for i in unit if not work[i]]
+            for size in (2, 3):
+                for combo in itertools.combinations(empties, size):
+                    union = set()
+                    for i in combo:
+                        union |= cand[i]
+                    if len(union) != size:
+                        continue
+                    for i in empties:
+                        if i not in combo and cand[i] & union:
+                            cand[i] -= union
+                            changed = True
+                for vals in itertools.combinations(sorted(SUD_ALL), size):
+                    vset = set(vals)
+                    spots = [i for i in empties if cand[i] & vset]
+                    if len(spots) != size:
+                        continue
+                    if any(not (cand[i] & vset) for i in spots):
+                        continue
+                    if any(cand[i] - vset for i in spots):
+                        for i in spots:
+                            cand[i] &= vset
+                        changed = True
+        if changed:
+            hardest = max(hardest, 2)
+            singles()
+            continue
+
+        # 3) X-Wing
+        changed = False
+        for lines, other, keyof in ((SUD_ROWS, SUD_COLS, lambda i: i % SUD_N),
+                                    (SUD_COLS, SUD_ROWS, lambda i: i // SUD_N)):
+            for v in SUD_ALL:
+                spots = {}
+                for li, line in enumerate(lines):
+                    s2 = [i for i in line if not work[i] and v in cand[i]]
+                    if len(s2) == 2:
+                        spots[li] = s2
+                for a, b in itertools.combinations(sorted(spots), 2):
+                    pa, pb = spots[a], spots[b]
+                    ka = sorted(keyof(i) for i in pa)
+                    kb = sorted(keyof(i) for i in pb)
+                    if ka != kb:
+                        continue
+                    for k in ka:
+                        for i in other[k]:
+                            if i in pa or i in pb:
+                                continue
+                            if not work[i] and v in cand[i]:
+                                cand[i].discard(v)
+                                changed = True
+        if changed:
+            hardest = max(hardest, 3)
+            singles()
+            continue
+
+        return 4          # 더 쓸 기법이 없다
+
+
+def sud_make_puzzle(level, tries=8, budget=4.0):
+    """그 난이도에 맞는 문제를 만든다. (문제, 해답, 기법단계) 를 돌려준다.
+
+    완성된 판에서 숫자를 하나씩 걷어내되, 해가 둘 이상이 되면 되돌린다.
+    목표 개수까지 판 뒤 기법 단계를 재서 조건에 맞으면 받아들인다. 시간 예산
+    안에 못 맞추면 그때까지 본 것 중 가장 가까운 것을 쓴다.
+    """
+    band, need, cap = SUD_LEVEL_INFO.get(level, ((30, 34), 0, None))
+    lo, hi = band
+    deadline = time.monotonic() + budget
+    best = None                       # (나쁨 정도, 문제, 해답, 단계)
+
+    for _ in range(tries):
+        sol = sud_full_grid()
+        puz = list(sol)
+        order = list(range(81))
+        random.shuffle(order)
+        # 범위의 아래끝까지 판다. 목표를 범위 안에서 무작위로 잡으면 거기까지
+        # 못 파고 버려지는 판이 많아져, 어려운 난이도일수록 오래 걸린다.
+        target = lo
+        givens = 81
+        for i in order:
+            if givens <= target:
+                break
+            keep = puz[i]
+            puz[i] = 0
+            if sud_solve_count(puz, 2) != 1:
+                puz[i] = keep
+            else:
+                givens -= 1
+        if givens > hi:               # 더 못 팠다 — 이 판은 버린다
+            continue
+
+        tech = sud_grade(puz)
+        bad = 0
+        if tech < need:
+            bad += (need - tech) * 100
+        if cap is not None and tech > cap:
+            bad += (tech - cap) * 100
+        bad += abs(givens - (lo + hi) // 2)
+        if best is None or bad < best[0]:
+            best = (bad, list(puz), list(sol), tech)
+        if bad < 10:                  # 기법 조건을 만족하고 개수도 범위 안
+            return list(puz), list(sol), tech
+        if time.monotonic() > deadline:
+            break
+
+    return best[1], best[2], best[3]
+
+
+class SudokuGame:
+    """화면과 무관한 스도쿠 규칙 (sudoku.com 방식).
+
+        · 실수 3번이면 게임 오버
+        · 메모 모드에서 숫자를 누르면 연필 표시를 켜고 끈다
+        · 숫자를 넣으면 같은 줄·칸·박스의 그 숫자 메모가 지워진다
+        · 힌트는 고른 칸(없으면 아무 빈칸)에 정답을 넣는다
+        · 되돌리기는 넣기·지우기·메모를 한 단계씩 물린다
+    """
+
+    def __init__(self, opt):
+        self.opt = opt
+        self.reset()
+
+    def reset(self):
+        self.level = self.opt("level")
+        if self.level not in SUD_LEVEL_INFO:
+            self.level = "easy"
+        self.puzzle, self.answer, self.tech = sud_make_puzzle(self.level)
+        self.grid = list(self.puzzle)
+        self.given = [v != 0 for v in self.puzzle]
+        self.notes = [set() for _ in range(81)]
+        self.wrong = set()             # 틀린 채로 남아 있는 칸
+        self.cursor = self._first_empty()
+        self.note_mode = False
+        self.mistakes = 0
+        self.hints = 0
+        self.filled = sum(1 for v in self.puzzle if v)
+        self.undo_stack = []
+        self.elapsed = 0.0
+        self.score = 0
+        self.state = "play"
+        self.over = False
+        self.solved = False
+        self.msg = ""
+        self.msg_t = 0.0
+
+    def _first_empty(self):
+        for i in range(81):
+            if not self.grid[i]:
+                return i
+        return 0
+
+    # --------------------------------------------------------------- 조작
+    def move_cursor(self, dx, dy):
+        if self.over:
+            return
+        r, c = divmod(self.cursor, SUD_N)
+        c = max(0, min(SUD_N - 1, c + dx))
+        r = max(0, min(SUD_N - 1, r + dy))
+        self.cursor = r * SUD_N + c
+
+    def select(self, index):
+        if 0 <= index < 81 and not self.over:
+            self.cursor = index
+
+    def toggle_note_mode(self):
+        if self.over:
+            return
+        self.note_mode = not self.note_mode
+        self.flash("메모 " + ("켜짐" if self.note_mode else "꺼짐"))
+
+    def _push(self, kind, i, before_v, before_notes, before_wrong):
+        self.undo_stack.append((kind, i, before_v, set(before_notes),
+                                bool(before_wrong)))
+        if len(self.undo_stack) > 200:
+            self.undo_stack.pop(0)
+
+    def enter(self, value):
+        """숫자를 넣는다. 메모 모드면 연필 표시를 켜고 끈다."""
+        if self.over or not (1 <= value <= 9):
+            return
+        i = self.cursor
+        if self.given[i]:
+            self.flash("처음부터 있던 숫자입니다")
+            return
+        if self.note_mode:
+            if self.grid[i]:
+                return
+            self._push("note", i, self.grid[i], self.notes[i], i in self.wrong)
+            if value in self.notes[i]:
+                self.notes[i].discard(value)
+            else:
+                self.notes[i].add(value)
+            return
+
+        if self.grid[i] == value:
+            return
+        self._push("set", i, self.grid[i], self.notes[i], i in self.wrong)
+        was_filled = bool(self.grid[i])
+        self.grid[i] = value
+        self.notes[i] = set()
+        if value == self.answer[i]:
+            self.wrong.discard(i)
+            if not was_filled:
+                self.filled += 1
+            self._clear_peer_notes(i, value)
+            if self.filled >= 81:
+                self._finish()
+        else:
+            # sudoku.com 과 같이 틀린 숫자는 남겨 두고 실수로 센다
+            self.wrong.add(i)
+            if not was_filled:
+                self.filled += 1
+            self.mistakes += 1
+            self.flash("실수 %d / %d" % (self.mistakes, SUD_MISTAKES))
+            if self.mistakes >= SUD_MISTAKES:
+                self.state = "over"
+                self.over = True
+
+    def _clear_peer_notes(self, i, value):
+        for p in SUD_PEERS[i]:
+            self.notes[p].discard(value)
+
+    def erase(self):
+        if self.over:
+            return
+        i = self.cursor
+        if self.given[i]:
+            return
+        if not self.grid[i] and not self.notes[i]:
+            return
+        self._push("erase", i, self.grid[i], self.notes[i], i in self.wrong)
+        if self.grid[i]:
+            self.filled -= 1
+        self.grid[i] = 0
+        self.notes[i] = set()
+        self.wrong.discard(i)
+
+    def undo(self):
+        if self.over or not self.undo_stack:
+            return
+        kind, i, before_v, before_notes, before_wrong = self.undo_stack.pop()
+        if bool(self.grid[i]) != bool(before_v):
+            self.filled += 1 if before_v else -1
+        self.grid[i] = before_v
+        self.notes[i] = set(before_notes)
+        if before_wrong:
+            self.wrong.add(i)
+        else:
+            self.wrong.discard(i)
+        self.cursor = i
+
+    def hint(self):
+        """고른 칸에 정답을 넣는다. 실수로 세지 않고 힌트 수만 올라간다."""
+        if self.over:
+            return
+        i = self.cursor
+        if self.given[i] or (self.grid[i] and i not in self.wrong):
+            i = self._first_empty_or_wrong()
+            if i is None:
+                return
+            self.cursor = i
+        self._push("hint", i, self.grid[i], self.notes[i], i in self.wrong)
+        was_filled = bool(self.grid[i])
+        self.grid[i] = self.answer[i]
+        self.notes[i] = set()
+        self.wrong.discard(i)
+        if not was_filled:
+            self.filled += 1
+        self.hints += 1
+        self._clear_peer_notes(i, self.grid[i])
+        self.flash("힌트 %d번째" % self.hints)
+        if self.filled >= 81:
+            self._finish()
+
+    def _first_empty_or_wrong(self):
+        for i in range(81):
+            if not self.grid[i] or i in self.wrong:
+                return i
+        return None
+
+    def _finish(self):
+        if self.wrong:
+            return
+        self.solved = True
+        self.over = True
+        self.state = "over"
+        self.score = self.final_score()
+        self.flash("완성!")
+
+    def final_score(self):
+        """sudoku.com 은 점수 식을 공개하지 않는다. 난이도를 바탕으로
+        시간·실수·힌트를 깎는 방식으로 비슷하게 맞춰 두었다."""
+        base = SUD_BASE_SCORE.get(self.level, 1000)
+        minutes = self.elapsed / 60000.0
+        time_keep = max(0.35, 1.0 - minutes * 0.03)
+        penalty = self.mistakes * 0.12 + self.hints * 0.08
+        return max(0, int(base * time_keep * max(0.2, 1.0 - penalty)))
+
+    # ------------------------------------------------------------ 도움 정보
+    def remaining(self, value):
+        """그 숫자를 앞으로 몇 개 더 놓아야 하나 (sudoku.com 숫자판 표시)."""
+        done = sum(1 for i in range(81)
+                   if self.grid[i] == value and i not in self.wrong)
+        return max(0, SUD_N - done)
+
+    def highlight(self):
+        """지금 고른 칸 때문에 밝게 보여 줄 칸들."""
+        i = self.cursor
+        same = set()
+        v = self.grid[i]
+        if v:
+            same = {j for j in range(81) if self.grid[j] == v}
+        return SUD_PEERS[i], same
+
+    def flash(self, text, ms=1300.0):
+        self.msg = text
+        self.msg_t = ms
+
+    # ------------------------------------------------- 창이 요구하는 이름들
+    def move(self, dx):
+        self.move_cursor(dx, 0)
+
+    def update(self, dt):
+        if self.over:
+            return
+        self.elapsed += dt
+        if self.msg_t > 0:
+            self.msg_t = max(0.0, self.msg_t - dt)
+            if self.msg_t == 0:
+                self.msg = ""
+
+    def time_text(self):
+        t = int(self.elapsed // 1000)
+        return "%d:%02d" % (t // 60, t % 60)
+
+
+# =============================================================== 스도쿠 화면
+class SudokuBoard(QWidget):
+    """9x9 판. sudoku.com 처럼 고른 칸의 줄·칸·박스와 같은 숫자를 밝게 보여 준다."""
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.win = win
+        self.resync()
+
+    def cell(self):
+        # 스도쿠는 9칸이라 낙하 퍼즐과 같은 셀 크기를 쓰면 창이 너무 커진다
+        return max(14, int(self.win.cfg.s["cell"] * 0.85))
+
+    def resync(self):
+        c = self.cell()
+        self.setFixedSize(c * SUD_N, c * SUD_N)
+        self.update()
+
+    def cell_at(self, pos):
+        c = self.cell()
+        col, row = int(pos.x()) // c, int(pos.y()) // c
+        if 0 <= col < SUD_N and 0 <= row < SUD_N:
+            return row * SUD_N + col
+        return None
+
+    def mousePressEvent(self, event):
+        i = self.cell_at(event.pos())
+        if i is None:
+            event.ignore()
+            return
+        g = self.win.game
+        g.select(i)
+        self.update()
+        event.accept()
+
+    def paintEvent(self, _event):
+        g = self.win.game
+        s = self.win.cfg.s
+        c = self.cell()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+
+        bg = QColor(s["bg_color"])
+        bg.setAlpha(int(s["bg_alpha"]))
+        if bg.alpha():
+            p.setPen(Qt.NoPen)
+            p.setBrush(bg)
+            p.drawRoundedRect(QRectF(0, 0, self.width(), self.height()),
+                              c * 0.16, c * 0.16)
+
+        peers, same = g.highlight()
+        cur = g.cursor
+        cur_v = g.grid[cur]
+        # 칸 바탕 — 고른 칸 / 같은 줄·칸·박스 / 같은 숫자
+        for i in range(81):
+            r, col = divmod(i, SUD_N)
+            rect = QRectF(col * c, r * c, c, c)
+            fill = None
+            if i == cur:
+                fill = QColor(90, 130, 255, 110)
+            elif cur_v and i in same:
+                fill = QColor(90, 130, 255, 70)
+            elif i in peers:
+                fill = QColor(255, 255, 255, 18)
+            if i in g.wrong:
+                fill = QColor(255, 90, 90, 90)
+            if fill:
+                p.setPen(Qt.NoPen)
+                p.setBrush(fill)
+                p.drawRect(rect)
+
+        # 격자 — 3칸마다 굵게
+        thin = QColor(255, 255, 255, max(26, int(s["grid_alpha"]) + 14))
+        thick = QColor(255, 255, 255, max(120, int(s["grid_alpha"]) + 100))
+        for k in range(SUD_N + 1):
+            heavy = (k % SUD_BOX == 0)
+            p.setPen(QPen(thick if heavy else thin,
+                          max(2.0, c * 0.08) if heavy else 1))
+            p.drawLine(int(k * c), 0, int(k * c), self.height())
+            p.drawLine(0, int(k * c), self.width(), int(k * c))
+
+        # 숫자와 메모
+        num = QFont(UI_FONT)
+        num.setPixelSize(max(9, int(c * 0.62)))
+        note_font = QFont(UI_FONT)
+        note_font.setPixelSize(max(6, int(c * 0.26)))
+        for i in range(81):
+            r, col = divmod(i, SUD_N)
+            rect = QRectF(col * c, r * c, c, c)
+            v = g.grid[i]
+            if v:
+                if i in g.wrong:
+                    color = QColor(SUD_WRONG_COLOR)
+                elif g.given[i]:
+                    color = QColor(SUD_GIVEN_COLOR)
+                else:
+                    color = QColor(SUD_CELL_COLOR)
+                num.setBold(g.given[i])
+                p.setFont(num)
+                p.setPen(color)
+                p.drawText(rect, Qt.AlignCenter, str(v))
+            elif g.notes[i]:
+                p.setFont(note_font)
+                p.setPen(QColor(SUD_NOTE_COLOR))
+                for n in g.notes[i]:
+                    nr, nc = divmod(n - 1, 3)
+                    sub = QRectF(col * c + nc * c / 3.0, r * c + nr * c / 3.0,
+                                 c / 3.0, c / 3.0)
+                    p.drawText(sub, Qt.AlignCenter, str(n))
+
+        # 안내 문구는 판을 가리지 않도록 상단바로 보낸다 (sudoku_stats 참고)
+        if self.win.paused and not g.over:
+            self._veil(p)
+            self._center_text(p, "일시정지", c * 0.62, self.height() * 0.47,
+                              QColor("#ffffff"))
+            self._center_text(p, self.win.key_hint("pause") + " 로 재개",
+                              c * 0.32, self.height() * 0.56, QColor("#c9d1e0"))
+        elif g.over:
+            self._veil(p)
+            if g.solved:
+                self._center_text(p, "완성!", c * 0.66, self.height() * 0.40,
+                                  QColor("#9cf0a6"))
+                self._center_text(p, "%s · %s점" % (g.time_text(),
+                                                   format(g.score, ",")),
+                                  c * 0.38, self.height() * 0.50,
+                                  QColor("#ffffff"))
+            else:
+                self._center_text(p, "실수 %d번" % SUD_MISTAKES, c * 0.60,
+                                  self.height() * 0.42, QColor("#ff8a95"))
+            self._center_text(p, "%s / %s 새 문제"
+                              % (self.win.key_hint("new_game"),
+                                 self.win.key_hint("restart")),
+                              c * 0.32, self.height() * 0.60, QColor("#c9d1e0"))
+        p.end()
+
+    def _veil(self, p):
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(8, 10, 16, 175))
+        p.drawRoundedRect(QRectF(0, 0, self.width(), self.height()),
+                          self.cell() * 0.16, self.cell() * 0.16)
+
+    def _center_text(self, p, text, size, y, color):
+        f = QFont(UI_FONT)
+        f.setPixelSize(max(9, int(size)))
+        f.setBold(True)
+        p.setFont(f)
+        fm = p.fontMetrics()
+        try:
+            tw = fm.horizontalAdvance(text)
+        except AttributeError:
+            tw = fm.width(text)
+        path = QPainterPath()
+        path.addText(QPointF((self.width() - tw) / 2.0, y), f, text)
+        p.setPen(QPen(QColor(0, 0, 0, 200), max(2.0, size * 0.12)))
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(path)
+        p.setPen(Qt.NoPen)
+        p.setBrush(color)
+        p.drawPath(path)
+
+
+class SudokuPad(QWidget):
+    """숫자판 — sudoku.com 처럼 아직 몇 개 남았는지 함께 보여 준다.
+
+    메모·지우개·힌트·되돌리기도 여기서 누를 수 있다.
+    """
+
+    # 2x2 로 놓는다. 세로로 네 줄을 쓰면 옆 칸에 남는 높이가 모자라 점수 글이
+    # 잘린다.
+    BUTTONS = [("메모", "note"), ("지우기", "erase"),
+               ("힌트", "hint"), ("되돌리기", "undo")]
+    BTN_COLS = 2
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.win = win
+        self.resync()
+
+    def cell(self):
+        return max(16, int(self.win.cfg.s["cell"] * 0.72))
+
+    def resync(self):
+        c = self.cell()
+        rows = (len(self.BUTTONS) + self.BTN_COLS - 1) // self.BTN_COLS
+        self.setFixedSize(c * 3, int(c * 3 + c * 0.9 * rows + c * 0.4))
+        self.update()
+
+    def _hit(self, pos):
+        c = self.cell()
+        x, y = int(pos.x()), int(pos.y())
+        if y < c * 3:
+            col, row = x // c, y // c
+            if 0 <= col < 3 and 0 <= row < 3:
+                return ("num", row * 3 + col + 1)
+            return None
+        row = int((y - c * 3 - c * 0.4) // (c * 0.9))
+        col = int(x // (self.width() / self.BTN_COLS))
+        idx = row * self.BTN_COLS + min(col, self.BTN_COLS - 1)
+        if row >= 0 and 0 <= idx < len(self.BUTTONS):
+            return ("act", self.BUTTONS[idx][1])
+        return None
+
+    def mousePressEvent(self, event):
+        hit = self._hit(event.pos())
+        if not hit:
+            event.ignore()
+            return
+        kind, what = hit
+        if kind == "num":
+            self.win.run_action("num_%d" % what)
+        else:
+            self.win.run_action(what)
+        self.update()
+        event.accept()
+
+    def paintEvent(self, _event):
+        g = self.win.game
+        c = self.cell()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        f = QFont(UI_FONT)
+        f.setPixelSize(max(10, int(c * 0.52)))
+        f.setBold(True)
+        small = QFont(UI_FONT)
+        small.setPixelSize(max(7, int(c * 0.26)))
+
+        for n in range(1, 10):
+            row, col = divmod(n - 1, 3)
+            rect = QRectF(col * c + 1, row * c + 1, c - 2, c - 2)
+            left = g.remaining(n)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(255, 255, 255, 16 if left else 6))
+            p.drawRoundedRect(rect, c * 0.16, c * 0.16)
+            p.setFont(f)
+            p.setPen(QColor("#e8ecf4") if left else QColor("#586074"))
+            p.drawText(rect, Qt.AlignCenter, str(n))
+            if left:
+                p.setFont(small)
+                p.setPen(QColor("#8892a6"))
+                p.drawText(QRectF(rect.x(), rect.y() + rect.height() * 0.62,
+                                  rect.width(), rect.height() * 0.36),
+                           Qt.AlignCenter, str(left))
+
+        top = c * 3 + c * 0.4
+        p.setFont(small)
+        bw = self.width() / self.BTN_COLS
+        for idx, (label, act) in enumerate(self.BUTTONS):
+            row, col = divmod(idx, self.BTN_COLS)
+            rect = QRectF(col * bw + 1, top + row * c * 0.9, bw - 2, c * 0.78)
+            on = (act == "note" and g.note_mode)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(74, 125, 255, 150) if on
+                       else QColor(255, 255, 255, 16))
+            p.drawRoundedRect(rect, c * 0.14, c * 0.14)
+            p.setPen(QColor("#e8ecf4"))
+            text = label
+            if act == "note":
+                text = "메모 " + ("켜짐" if g.note_mode else "꺼짐")
+            elif act == "hint":
+                text = "힌트 %d" % g.hints
+            p.drawText(rect, Qt.AlignCenter, text)
+        p.end()
+
+
+def sudoku_settings_tab(dlg):
+    w = dlg.w
+    page = QWidget()
+    form = QFormLayout(page)
+
+    level = QComboBox()
+    for key in SUD_LEVEL_KEYS:
+        band, need, cap = SUD_LEVEL_INFO[key]
+        level.addItem("%s (%d~%d칸)" % (SUD_LEVEL_LABEL[key], band[0], band[1]),
+                      key)
+    cur = w.cfg.opt("level")
+    if cur not in SUD_LEVEL_KEYS:
+        cur = "easy"
+    level.setCurrentIndex(SUD_LEVEL_KEYS.index(cur))
+    level.currentIndexChanged.connect(
+        lambda i: dlg._set_game("level", level.itemData(i)))
+    form.addRow("난이도", level)
+
+    note = QLabel(
+        "sudoku.com 방식이다. 실수 3번이면 끝, 메모(연필)·힌트·되돌리기가 있고,\n"
+        "숫자를 넣으면 같은 줄·칸·박스의 그 숫자 메모가 자동으로 지워진다.\n"
+        "고른 칸의 줄·칸·박스와 같은 숫자를 함께 밝게 보여 준다.\n"
+        "난이도는 주어진 숫자 개수와 풀이에 필요한 기법으로 가른다.\n"
+        "난이도를 바꾸면 다음 문제부터 적용된다 (F2 / R 로 새 문제).")
+    note.setWordWrap(True)
+    form.addRow("규칙", note)
+    return page
+
+
+def sudoku_stats(win, g, compact):
+    left = 81 - g.filled
+    info = "%s · 실수 %d/%d" % (g.time_text(), g.mistakes, SUD_MISTAKES)
+    if g.msg:
+        info = g.msg              # 판을 가리는 대신 상단바에 띄운다
+    # 시간 기록은 음수로 담아 둔다 (창은 큰 값으로만 갱신하므로, 음수로 넣어야
+    # 더 짧은 시간이 이긴다). 보여 줄 때 되돌린다.
+    best = -int(win.cfg.rec.get("best_time_" + g.level, 0))
+    best_txt = "-" if best <= 0 else "%d:%02d" % (best // 60, best % 60)
+    if compact:
+        # 스도쿠 판은 정사각이라 옆 칸이 짧다. 간략형에도 꼭 필요한 것은 담는다.
+        return ("<b>%s</b>"
+                "<br>%s"
+                "<br><br>남은 <b>%d</b>"
+                "<br>실수 <b>%d</b>/%d"
+                "<br>힌트 <b>%d</b>"
+                "<br><br>최고 <b>%s</b>"
+                % (g.time_text(), SUD_LEVEL_LABEL.get(g.level, g.level),
+                   left, g.mistakes, SUD_MISTAKES, g.hints, best_txt), info)
+    return ("시간<br><b>%s</b>"
+            "<br><br>난이도<br><b>%s</b>"
+            "<br>필요 기법<br><b>%s</b>"
+            "<br><br>남은 칸 <b>%d</b>"
+            "<br>실수 <b>%d</b> / %d"
+            "<br>힌트 <b>%d</b>"
+            "<br><br>최고 기록<br><b>%s</b>"
+            % (g.time_text(), SUD_LEVEL_LABEL.get(g.level, g.level),
+               SUD_TECH_NAME.get(g.tech, "?"), left, g.mistakes,
+               SUD_MISTAKES, g.hints, best_txt), info)
+
+
+def sudoku_records(g):
+    """다 푼 경우에만 기록한다. 시간은 짧을수록 좋으므로 따로 다룬다."""
+    if not g.solved:
+        return {}
+    secs = max(1, int(g.elapsed // 1000))
+    return {"best": g.score, "best_time_" + g.level: -secs}
+
+
+SUDOKU = register_game(GameSpec(
+    key="sudoku",
+    label="스도쿠",
+    defaults={"level": "easy"},
+    engine=SudokuGame,
+    board=SudokuBoard,
+    side=SudokuPad,
+    stats=sudoku_stats,
+    settings_tab=sudoku_settings_tab,
+    actions=set(["cur_left", "cur_right", "cur_up", "cur_down",
+                 "note", "erase", "erase2", "undo", "hint"]
+                + ["num_%d" % n for n in range(1, 10)]),
+    records=sudoku_records,
+    wants_mouse=True,
+))
+
+
 def force_fusion_style():
     """Qt 스타일을 Fusion 으로 고정한다.
 
@@ -2651,6 +3646,7 @@ class PuyoWindow(QWidget):
         # ---------------------------------------------------- 필드 / 패널
         self.board = self.spec.board(self)
         self.next_view = self.spec.side(self) if self.spec.side else None
+        self._apply_mouse_mode()
         self.stat_label = QLabel()
         self.stat_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.stat_label.setMouseTracking(True)
@@ -2736,10 +3732,36 @@ class PuyoWindow(QWidget):
         "hard": lambda g: g.hard_drop(),
         "hold": lambda g: g.hold(),
         "rot_180": lambda g: g.rotate_180(),
+        # 스도쿠
+        "cur_left": lambda g: g.move_cursor(-1, 0),
+        "cur_right": lambda g: g.move_cursor(1, 0),
+        "cur_up": lambda g: g.move_cursor(0, -1),
+        "cur_down": lambda g: g.move_cursor(0, 1),
+        "note": lambda g: g.toggle_note_mode(),
+        "erase": lambda g: g.erase(),
+        "erase2": lambda g: g.erase(),
+        "undo": lambda g: g.undo(),
+        "hint": lambda g: g.hint(),
     }
+    for _n in range(1, 10):
+        GAME_VERBS["num_%d" % _n] = (lambda n: lambda g: g.enter(n))(_n)
+    del _n
     # 전역 핫키 쪽 이름 -> 같은 일을 하는 앱 단축키 이름
     GLOBAL_VERB_ALIAS = {"g_left": "left", "g_right": "right", "g_soft": "soft",
                          "g_rot": "rot_cw", "g_hard": "hard", "g_hold": "hold"}
+
+    def _apply_mouse_mode(self):
+        """필드가 마우스를 받을지 정한다.
+
+        낙하 퍼즐은 필드를 눌러도 창이 끌리는 편이 낫다. 스도쿠처럼 칸을
+        눌러야 하는 게임은 그 반대라, 게임이 스스로 필요하다고 밝힌 경우에만
+        필드와 옆 위젯에 클릭을 넘긴다. 상단바·점수 칸·창 가장자리는 어느
+        쪽이든 그대로 끌 수 있다.
+        """
+        through = not self.spec.wants_mouse
+        self.board.setAttribute(Qt.WA_TransparentForMouseEvents, through)
+        if self.next_view is not None:
+            self.next_view.setAttribute(Qt.WA_TransparentForMouseEvents, through)
 
     def action_available(self, action_id):
         """지금 고른 게임에서 쓰이는 동작인가.
@@ -2798,6 +3820,11 @@ class PuyoWindow(QWidget):
         """
         self.key_map = {}
         for action_id, _label, _default in LOCAL_ACTIONS:
+            # 게임마다 같은 키를 다른 일에 쓴다. 예를 들어 ↓ 는 뿌요·테트리스
+            # 에서 빠른 낙하지만 스도쿠에서는 칸 커서를 내린다. 지금 게임이
+            # 쓰지 않는 동작은 표에 넣지 않아야 키가 겹치지 않는다.
+            if not self.action_available(action_id):
+                continue
             combo = seq_to_combo(self.cfg.keys.get(action_id) or "")
             if combo is not None:
                 self.key_map[combo] = action_id
@@ -3176,6 +4203,7 @@ class PuyoWindow(QWidget):
         self.next_view = self.spec.side(self) if self.spec.side else None
         if self.next_view is not None:
             self.panel_lay.insertWidget(0, self.next_view)
+        self._apply_mouse_mode()
 
         # 숨어 있는 동안 트레이에서 바꿨다면 새 판을 얼려 둔다 (새 게임과 같은 규칙)
         self.paused = (not self.isVisible()) and bool(self.cfg.s["pause_on_hide"])
